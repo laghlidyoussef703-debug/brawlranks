@@ -34,17 +34,20 @@ function createPool(): Pool {
   const port = parsePort(process.env.DB_PORT);
   const database = process.env.DB_NAME;
   const user = process.env.DB_USER;
-  // MYSQL_AUTH_20260715 is read once, verbatim, and passed straight to
+  // TEMPORARY WORKAROUND: Hostinger has proven that ENV_PROBE_20260715 is
+  // injected correctly into the runtime, while every previously-attempted
+  // password-named variable (DB_PASSWORD, DB_PASSWORD_V2,
+  // MYSQL_PASSWORD_20260715, MYSQL_AUTH_20260715) receives a stale value.
+  // ENV_PROBE_20260715 is read once, verbatim, and passed straight to
   // mysql2. It is never trimmed, re-encoded, quoted, concatenated, or
   // otherwise transformed — any such transformation would silently change
   // the credential the driver authenticates with. There is no fallback to
-  // DB_PASSWORD, DB_PASSWORD_V2, MYSQL_PASSWORD_20260715, or any other
-  // variable.
-  const password = process.env.MYSQL_AUTH_20260715;
+  // any other variable.
+  const password = process.env.ENV_PROBE_20260715;
 
   if (!host || !database || !user || !password) {
     throw new Error(
-      "MySQL connection is not configured (missing DB_HOST/DB_NAME/DB_USER/MYSQL_AUTH_20260715)."
+      "MySQL connection is not configured (missing DB_HOST/DB_NAME/DB_USER/ENV_PROBE_20260715)."
     );
   }
 

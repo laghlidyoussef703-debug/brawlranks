@@ -22,7 +22,7 @@ interface ConnectionCheckRow extends RowDataPacket {
   serverTime: Date | string;
 }
 
-/** Safe, non-secret connection settings only — DB_PASSWORD is never read here. */
+/** Safe, non-secret connection settings only — the MySQL credential itself is never read here. */
 function safeConnectionInfo() {
   return {
     dbHost: process.env.DB_HOST ?? null,
@@ -33,26 +33,28 @@ function safeConnectionInfo() {
 }
 
 /**
- * Fingerprints MYSQL_AUTH_20260715 without ever exposing or logging it.
- * Only an 8-character SHA-256 prefix is returned — enough to compare
- * against a locally-computed fingerprint of the intended password
- * (see scripts/fingerprint-db-password.mjs), never enough to reconstruct it.
- * There is no fallback to DB_PASSWORD, DB_PASSWORD_V2,
- * MYSQL_PASSWORD_20260715, or any other variable.
+ * TEMPORARY WORKAROUND: ENV_PROBE_20260715 is now the actual MySQL
+ * credential source (see lib/mysql.ts) because Hostinger has proven it is
+ * injected correctly, while every password-named variable
+ * (DB_PASSWORD, DB_PASSWORD_V2, MYSQL_PASSWORD_20260715,
+ * MYSQL_AUTH_20260715) receives a stale value. Fingerprints it without
+ * ever exposing or logging it — only an 8-character SHA-256 prefix is
+ * returned, never enough to reconstruct it. There is no fallback to any
+ * other variable.
  */
 function fingerprintPassword() {
-  const password = process.env.MYSQL_AUTH_20260715;
+  const password = process.env.ENV_PROBE_20260715;
 
   if (password === undefined) {
     return {
-      mysqlAuth20260715Length: 0,
+      mysqlRuntimeSecretLength: 0,
       dbPasswordStartsWithWhitespace: false,
       dbPasswordEndsWithWhitespace: false,
       dbPasswordContainsNewline: false,
       dbPasswordContainsCarriageReturn: false,
       dbPasswordContainsSingleQuote: false,
       dbPasswordContainsDoubleQuote: false,
-      mysqlAuth20260715Sha256Prefix: null as string | null,
+      mysqlRuntimeSecretSha256Prefix: null as string | null,
     };
   }
 
@@ -62,36 +64,14 @@ function fingerprintPassword() {
     .slice(0, 8);
 
   return {
-    mysqlAuth20260715Length: password.length,
+    mysqlRuntimeSecretLength: password.length,
     dbPasswordStartsWithWhitespace: /^\s/.test(password),
     dbPasswordEndsWithWhitespace: /\s$/.test(password),
     dbPasswordContainsNewline: password.includes("\n"),
     dbPasswordContainsCarriageReturn: password.includes("\r"),
     dbPasswordContainsSingleQuote: password.includes("'"),
     dbPasswordContainsDoubleQuote: password.includes('"'),
-    mysqlAuth20260715Sha256Prefix: sha256Prefix,
-  };
-}
-
-/**
- * Fingerprints ENV_PROBE_20260715 the same safe way as the password
- * fingerprints above: only a length and an 8-character SHA-256 prefix are
- * ever returned, never the actual value. This is a standalone diagnostic
- * probe, unrelated to and never used by the MySQL connection logic.
- */
-function fingerprintEnvProbe() {
-  const value = process.env.ENV_PROBE_20260715;
-
-  if (value === undefined) {
-    return {
-      envProbeLength: 0,
-      envProbeSha256Prefix: null as string | null,
-    };
-  }
-
-  return {
-    envProbeLength: value.length,
-    envProbeSha256Prefix: createHash("sha256").update(value, "utf8").digest("hex").slice(0, 8),
+    mysqlRuntimeSecretSha256Prefix: sha256Prefix,
   };
 }
 
@@ -194,12 +174,9 @@ export async function GET(request: Request) {
         tcpDurationMs: 0,
       };
 
-  const envProbe = fingerprintEnvProbe();
-
   const commonFields = {
     ...connectionInfo,
     ...passwordFingerprint,
-    ...envProbe,
     ...tcpCheck,
     nodeVersion,
     mysqlDriverVersion,
