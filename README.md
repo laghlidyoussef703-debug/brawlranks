@@ -47,4 +47,11 @@ Copy `.env.example` to `.env.local` and fill in real values locally. **Never com
 
 ## Status
 
-This is an infrastructure proof-of-concept only. No database connection, authentication, ranking engine, or public content pages have been implemented yet. See `BRAWLRANKS_WEBSITE_SPEC.md` Section 43 (Development Order) for the full build sequence.
+Phase 1 (infrastructure proof-of-concept) and Phase 2 (production database
+schema + canonical Brawler catalog vertical slice) are locally complete —
+see [`PHASE2.md`](./PHASE2.md) for the migration system, table inventory,
+sync pipeline, and known limitations (no Hostinger MCP / no local DB
+credentials this session, so nothing has been applied to production yet).
+No ranking engine or public content pages have been implemented. See
+`BRAWLRANKS_WEBSITE_SPEC.md` Section 43 (Development Order) for the full
+build sequence.
