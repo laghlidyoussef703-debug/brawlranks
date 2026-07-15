@@ -33,25 +33,25 @@ function safeConnectionInfo() {
 }
 
 /**
- * Fingerprints DB_PASSWORD_V2 without ever exposing or logging it. Only an
- * 8-character SHA-256 prefix is returned — enough to compare against a
- * locally-computed fingerprint of the intended password
+ * Fingerprints MYSQL_PASSWORD_20260715 without ever exposing or logging it.
+ * Only an 8-character SHA-256 prefix is returned — enough to compare
+ * against a locally-computed fingerprint of the intended password
  * (see scripts/fingerprint-db-password.mjs), never enough to reconstruct it.
- * There is no fallback to DB_PASSWORD.
+ * There is no fallback to DB_PASSWORD, DB_PASSWORD_V2, or any other variable.
  */
 function fingerprintPassword() {
-  const password = process.env.DB_PASSWORD_V2;
+  const password = process.env.MYSQL_PASSWORD_20260715;
 
   if (password === undefined) {
     return {
-      dbPasswordV2Length: 0,
+      mysqlPassword20260715Length: 0,
       dbPasswordStartsWithWhitespace: false,
       dbPasswordEndsWithWhitespace: false,
       dbPasswordContainsNewline: false,
       dbPasswordContainsCarriageReturn: false,
       dbPasswordContainsSingleQuote: false,
       dbPasswordContainsDoubleQuote: false,
-      dbPasswordV2Sha256Prefix: null as string | null,
+      mysqlPassword20260715Sha256Prefix: null as string | null,
     };
   }
 
@@ -61,14 +61,14 @@ function fingerprintPassword() {
     .slice(0, 8);
 
   return {
-    dbPasswordV2Length: password.length,
+    mysqlPassword20260715Length: password.length,
     dbPasswordStartsWithWhitespace: /^\s/.test(password),
     dbPasswordEndsWithWhitespace: /\s$/.test(password),
     dbPasswordContainsNewline: password.includes("\n"),
     dbPasswordContainsCarriageReturn: password.includes("\r"),
     dbPasswordContainsSingleQuote: password.includes("'"),
     dbPasswordContainsDoubleQuote: password.includes('"'),
-    dbPasswordV2Sha256Prefix: sha256Prefix,
+    mysqlPassword20260715Sha256Prefix: sha256Prefix,
   };
 }
 
