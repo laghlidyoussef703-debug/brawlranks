@@ -1,11 +1,18 @@
+import { createHash } from "node:crypto";
+import { Socket } from "node:net";
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
+import mysql2Package from "mysql2/package.json";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool } from "@/lib/mysql";
+import { getPool, isPoolSingletonActive } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
-// Node.js runtime required: this route uses mysql2.
+// Node.js runtime required: this route uses mysql2 and node:net.
 export const runtime = "nodejs";
+
+// This is a temporary internal diagnostic — never linked from any public
+// page and never intended to be crawled.
+const NOINDEX_HEADERS = { "X-Robots-Tag": "noindex, nofollow" };
 
 interface ConnectionCheckRow extends RowDataPacket {
   currentUser: string;
@@ -15,10 +22,7 @@ interface ConnectionCheckRow extends RowDataPacket {
   serverTime: Date | string;
 }
 
-/**
- * Safe, non-secret connection settings only — DB_PASSWORD is never read
- * or referenced anywhere in this file.
- */
+/** Safe, non-secret connection settings only — DB_PASSWORD is never read here. */
 function safeConnectionInfo() {
   return {
     dbHost: process.env.DB_HOST ?? null,
@@ -28,8 +32,116 @@ function safeConnectionInfo() {
   };
 }
 
+/**
+ * Fingerprints DB_PASSWORD without ever exposing or logging it. Only an
+ * 8-character SHA-256 prefix is returned — enough to compare against a
+ * locally-computed fingerprint of the intended password
+ * (see scripts/fingerprint-db-password.mjs), never enough to reconstruct it.
+ */
+function fingerprintPassword() {
+  const password = process.env.DB_PASSWORD;
+
+  if (password === undefined) {
+    return {
+      dbPasswordLength: 0,
+      dbPasswordStartsWithWhitespace: false,
+      dbPasswordEndsWithWhitespace: false,
+      dbPasswordContainsNewline: false,
+      dbPasswordContainsCarriageReturn: false,
+      dbPasswordContainsSingleQuote: false,
+      dbPasswordContainsDoubleQuote: false,
+      dbPasswordSha256Prefix: null as string | null,
+    };
+  }
+
+  const sha256Prefix = createHash("sha256")
+    .update(password, "utf8")
+    .digest("hex")
+    .slice(0, 8);
+
+  return {
+    dbPasswordLength: password.length,
+    dbPasswordStartsWithWhitespace: /^\s/.test(password),
+    dbPasswordEndsWithWhitespace: /\s$/.test(password),
+    dbPasswordContainsNewline: password.includes("\n"),
+    dbPasswordContainsCarriageReturn: password.includes("\r"),
+    dbPasswordContainsSingleQuote: password.includes("'"),
+    dbPasswordContainsDoubleQuote: password.includes('"'),
+    dbPasswordSha256Prefix: sha256Prefix,
+  };
+}
+
+interface TcpCheckResult {
+  tcpReachable: boolean;
+  tcpAddressFamily: string | null;
+  tcpRemoteAddress: string | null;
+  tcpDurationMs: number;
+}
+
+/**
+ * Opens a raw TCP connection to host:port with a short timeout, to prove or
+ * disprove network reachability independently of MySQL authentication. The
+ * socket is always destroyed before this resolves — nothing is left open.
+ */
+function checkTcpReachable(host: string, port: number, timeoutMs = 5000): Promise<TcpCheckResult> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const socket = new Socket();
+    let settled = false;
+
+    const finish = (result: TcpCheckResult) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    socket.setTimeout(timeoutMs);
+
+    socket.once("connect", () => {
+      finish({
+        tcpReachable: true,
+        tcpAddressFamily: socket.remoteFamily ?? null,
+        tcpRemoteAddress: socket.remoteAddress ?? null,
+        tcpDurationMs: Date.now() - startedAt,
+      });
+    });
+
+    socket.once("timeout", () => {
+      finish({
+        tcpReachable: false,
+        tcpAddressFamily: null,
+        tcpRemoteAddress: null,
+        tcpDurationMs: Date.now() - startedAt,
+      });
+    });
+
+    socket.once("error", () => {
+      finish({
+        tcpReachable: false,
+        tcpAddressFamily: null,
+        tcpRemoteAddress: null,
+        tcpDurationMs: Date.now() - startedAt,
+      });
+    });
+
+    socket.connect(port, host);
+  });
+}
+
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/** Safe MySQL driver error fields only — never a stack trace. */
+function safeMysqlErrorFields(error: unknown) {
+  const record = typeof error === "object" && error !== null ? (error as Record<string, unknown>) : {};
+  return {
+    code: typeof record.code === "string" ? record.code : "MYSQL_CONNECTION_ERROR",
+    errno: typeof record.errno === "number" ? record.errno : null,
+    sqlState: typeof record.sqlState === "string" ? record.sqlState : null,
+    message: error instanceof Error ? error.message : "Failed to connect to MySQL.",
+  };
 }
 
 export async function GET(request: Request) {
@@ -38,8 +150,34 @@ export async function GET(request: Request) {
     logSafeError("mysql-connection", "UNAUTHORIZED", auth.reason);
     return NextResponse.json(errorBody("UNAUTHORIZED", "Missing or invalid authorization."), {
       status: 401,
+      headers: NOINDEX_HEADERS,
     });
   }
+
+  const connectionInfo = safeConnectionInfo();
+  const passwordFingerprint = fingerprintPassword();
+  const nodeVersion = process.version;
+  const mysqlDriverVersion = mysql2Package.version ?? null;
+
+  const rawPort = Number(process.env.DB_PORT);
+  const tcpPort = Number.isInteger(rawPort) && rawPort > 0 ? rawPort : 3306;
+  const tcpCheck = process.env.DB_HOST
+    ? await checkTcpReachable(process.env.DB_HOST, tcpPort)
+    : {
+        tcpReachable: false,
+        tcpAddressFamily: null,
+        tcpRemoteAddress: null,
+        tcpDurationMs: 0,
+      };
+
+  const commonFields = {
+    ...connectionInfo,
+    ...passwordFingerprint,
+    ...tcpCheck,
+    nodeVersion,
+    mysqlDriverVersion,
+    runtime: "nodejs" as const,
+  };
 
   try {
     const pool = getPool();
@@ -53,35 +191,34 @@ export async function GET(request: Request) {
 
     const row = rows[0];
 
-    return NextResponse.json({
-      ok: true,
-      connected: true,
-      currentUser: row.currentUser,
-      authenticatedAs: row.authenticatedAs,
-      databaseName: row.databaseName,
-      mysqlVersion: row.mysqlVersion,
-      serverTime: toIsoString(row.serverTime),
-      connectionInfo: safeConnectionInfo(),
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        connected: true,
+        currentUser: row.currentUser,
+        authenticatedAs: row.authenticatedAs,
+        databaseName: row.databaseName,
+        mysqlVersion: row.mysqlVersion,
+        serverTime: toIsoString(row.serverTime),
+        poolSingletonActive: isPoolSingletonActive(),
+        ...commonFields,
+      },
+      { headers: NOINDEX_HEADERS }
+    );
   } catch (error) {
-    // Log only a safe message server-side — never the raw error object,
-    // which could otherwise carry a stack trace or driver-internal detail.
+    // Log only safe, non-sensitive fields server-side — never the raw
+    // error object (which could carry a stack trace) and never a secret.
     logSafeError("mysql-connection", "MYSQL_CONNECTION_ERROR", error);
-
-    const code =
-      typeof error === "object" && error !== null && "code" in error
-        ? String((error as { code?: unknown }).code)
-        : "MYSQL_CONNECTION_ERROR";
-    const message = error instanceof Error ? error.message : "Failed to connect to MySQL.";
 
     return NextResponse.json(
       {
         ok: false,
         connected: false,
-        code,
-        message,
+        poolSingletonActive: isPoolSingletonActive(),
+        ...commonFields,
+        ...safeMysqlErrorFields(error),
       },
-      { status: 502 }
+      { status: 502, headers: NOINDEX_HEADERS }
     );
   }
 }
