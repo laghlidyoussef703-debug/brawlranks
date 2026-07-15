@@ -181,7 +181,7 @@ export async function POST(request: Request) {
         const [result] = await connection.execute<ResultSetHeader>(
           `INSERT INTO api_test_snapshots
              (source, endpoint, http_status, payload, payload_hash, fetched_at, received_at, run_id)
-           VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             SOURCE,
             ENDPOINT,
