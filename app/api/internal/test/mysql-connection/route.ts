@@ -1,17 +1,15 @@
-import { createHash } from "node:crypto";
 import { Socket } from "node:net";
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import mysql2Package from "mysql2/package.json";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool, isPoolSingletonActive } from "@/lib/mysql";
+import { getPool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
 // Node.js runtime required: this route uses mysql2 and node:net.
 export const runtime = "nodejs";
 
-// This is a temporary internal diagnostic — never linked from any public
-// page and never intended to be crawled.
+// Never linked from any public page and never intended to be crawled.
 const NOINDEX_HEADERS = { "X-Robots-Tag": "noindex, nofollow" };
 
 interface ConnectionCheckRow extends RowDataPacket {
@@ -32,52 +30,10 @@ function safeConnectionInfo() {
   };
 }
 
-/**
- * Fingerprints BRAWL_DB_SECRET_V1 — the production MySQL password source
- * (see lib/mysql.ts) — without ever exposing or logging it. Only an
- * 8-character SHA-256 prefix is returned, never enough to reconstruct it.
- * There is no fallback to DB_PASSWORD, DB_PASSWORD_V2,
- * MYSQL_PASSWORD_20260715, MYSQL_AUTH_20260715, MYSQL_AUTH_B64_20260715,
- * ENV_PROBE_20260715, or any other variable.
- */
-function fingerprintPassword() {
-  const password = process.env.BRAWL_DB_SECRET_V1;
-
-  if (password === undefined) {
-    return {
-      brawlDbSecretLength: 0,
-      dbPasswordStartsWithWhitespace: false,
-      dbPasswordEndsWithWhitespace: false,
-      dbPasswordContainsNewline: false,
-      dbPasswordContainsCarriageReturn: false,
-      dbPasswordContainsSingleQuote: false,
-      dbPasswordContainsDoubleQuote: false,
-      brawlDbSecretSha256Prefix: null as string | null,
-    };
-  }
-
-  const sha256Prefix = createHash("sha256")
-    .update(password, "utf8")
-    .digest("hex")
-    .slice(0, 8);
-
-  return {
-    brawlDbSecretLength: password.length,
-    dbPasswordStartsWithWhitespace: /^\s/.test(password),
-    dbPasswordEndsWithWhitespace: /\s$/.test(password),
-    dbPasswordContainsNewline: password.includes("\n"),
-    dbPasswordContainsCarriageReturn: password.includes("\r"),
-    dbPasswordContainsSingleQuote: password.includes("'"),
-    dbPasswordContainsDoubleQuote: password.includes('"'),
-    brawlDbSecretSha256Prefix: sha256Prefix,
-  };
-}
-
 interface TcpCheckResult {
   tcpReachable: boolean;
   tcpAddressFamily: string | null;
   tcpRemoteAddress: string | null;
-  tcpDurationMs: number;
 }
 
 /**
@@ -87,7 +43,6 @@ interface TcpCheckResult {
  */
 function checkTcpReachable(host: string, port: number, timeoutMs = 5000): Promise<TcpCheckResult> {
   return new Promise((resolve) => {
-    const startedAt = Date.now();
     const socket = new Socket();
     let settled = false;
 
@@ -105,26 +60,15 @@ function checkTcpReachable(host: string, port: number, timeoutMs = 5000): Promis
         tcpReachable: true,
         tcpAddressFamily: socket.remoteFamily ?? null,
         tcpRemoteAddress: socket.remoteAddress ?? null,
-        tcpDurationMs: Date.now() - startedAt,
       });
     });
 
     socket.once("timeout", () => {
-      finish({
-        tcpReachable: false,
-        tcpAddressFamily: null,
-        tcpRemoteAddress: null,
-        tcpDurationMs: Date.now() - startedAt,
-      });
+      finish({ tcpReachable: false, tcpAddressFamily: null, tcpRemoteAddress: null });
     });
 
     socket.once("error", () => {
-      finish({
-        tcpReachable: false,
-        tcpAddressFamily: null,
-        tcpRemoteAddress: null,
-        tcpDurationMs: Date.now() - startedAt,
-      });
+      finish({ tcpReachable: false, tcpAddressFamily: null, tcpRemoteAddress: null });
     });
 
     socket.connect(port, host);
@@ -135,7 +79,7 @@ function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-/** Safe MySQL driver error fields only — never a stack trace. */
+/** Safe MySQL driver error fields only — never a stack trace, never a secret. */
 function safeMysqlErrorFields(error: unknown) {
   const record = typeof error === "object" && error !== null ? (error as Record<string, unknown>) : {};
   return {
@@ -157,7 +101,6 @@ export async function GET(request: Request) {
   }
 
   const connectionInfo = safeConnectionInfo();
-  const passwordFingerprint = fingerprintPassword();
   const nodeVersion = process.version;
   const mysqlDriverVersion = mysql2Package.version ?? null;
 
@@ -165,16 +108,10 @@ export async function GET(request: Request) {
   const tcpPort = Number.isInteger(rawPort) && rawPort > 0 ? rawPort : 3306;
   const tcpCheck = process.env.DB_HOST
     ? await checkTcpReachable(process.env.DB_HOST, tcpPort)
-    : {
-        tcpReachable: false,
-        tcpAddressFamily: null,
-        tcpRemoteAddress: null,
-        tcpDurationMs: 0,
-      };
+    : { tcpReachable: false, tcpAddressFamily: null, tcpRemoteAddress: null };
 
   const commonFields = {
     ...connectionInfo,
-    ...passwordFingerprint,
     ...tcpCheck,
     nodeVersion,
     mysqlDriverVersion,
@@ -202,7 +139,6 @@ export async function GET(request: Request) {
         databaseName: row.databaseName,
         mysqlVersion: row.mysqlVersion,
         serverTime: toIsoString(row.serverTime),
-        poolSingletonActive: isPoolSingletonActive(),
         ...commonFields,
       },
       { headers: NOINDEX_HEADERS }
@@ -216,7 +152,6 @@ export async function GET(request: Request) {
       {
         ok: false,
         connected: false,
-        poolSingletonActive: isPoolSingletonActive(),
         ...commonFields,
         ...safeMysqlErrorFields(error),
       },
