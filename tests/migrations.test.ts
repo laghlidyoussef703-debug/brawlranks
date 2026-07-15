@@ -79,3 +79,33 @@ test("migrations: no file touches api_test_snapshots (out of scope for Phase 2)"
     assert.ok(!/api_test_snapshots/i.test(content), `${filename} must not reference api_test_snapshots`);
   }
 });
+
+test("migrations: workflow_runs.status column is wide enough for every value its own CHECK constraint allows", async () => {
+  // Regression test for the bug fixed in 0016: migration 0002 declared
+  // status VARCHAR(20) but its CHECK constraint already allowed
+  // 'succeeded_with_warnings' (23 chars) — a value the column could never
+  // actually store. This test reads the FINAL authoritative definition
+  // (0016, the last migration to touch this column) and asserts the
+  // widened column width is >= the longest allowed status literal, so this
+  // class of bug can't silently reappear if the status vocabulary changes
+  // again without widening the column to match.
+  const content = await readFile(path.join(MIGRATIONS_DIR, "0016_widen_workflow_runs_status.sql"), "utf8");
+
+  const columnMatch = /MODIFY COLUMN status VARCHAR\((\d+)\)/i.exec(content);
+  assert.ok(columnMatch, "expected to find the widened status column definition in 0016");
+  const columnWidth = Number(columnMatch![1]);
+
+  const checkMatch = /chk_workflow_runs_status CHECK \(\s*status IN \(([^)]+)\)/i.exec(content);
+  assert.ok(checkMatch, "expected to find the chk_workflow_runs_status CHECK constraint in 0016");
+  const statusValues = checkMatch![1]
+    .split(",")
+    .map((v) => v.trim().replace(/^'|'$/g, ""));
+
+  assert.ok(statusValues.includes("succeeded_with_warnings"), "expected the known-longest status value to be present");
+
+  const longest = statusValues.reduce((max, v) => Math.max(max, v.length), 0);
+  assert.ok(
+    longest <= columnWidth,
+    `longest allowed status value is ${longest} chars ("${statusValues.find((v) => v.length === longest)}"), but the column is only VARCHAR(${columnWidth})`
+  );
+});
