@@ -8,7 +8,7 @@
 
 import { getPool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
-import { fetchRankingsFromProxy } from "@/lib/proxy";
+import { fetchRankingsFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validatePlayerRankingItems } from "@/lib/ingestion/schemas";
 import { classifyHttpStatus } from "@/lib/ingestion/retry";
 import { tryConsumeBudget } from "@/lib/ingestion/rateBudget";
@@ -107,8 +107,26 @@ export async function runRankingSeedSync(
         continue;
       }
 
-      const body = proxyResult.body as { ok?: boolean; items?: unknown[] } | null;
-      const items = body && Array.isArray(body.items) ? body.items : [];
+      // The DigitalOcean proxy's envelope nests the official API's data
+      // under `payload` (matching /v1/brawlers' contract exactly —
+      // { ok, status, fetchedAt, payload: { items } }), never at the top
+      // level. validateProxyEnvelope is the same helper lib/catalog/sync.ts
+      // uses for /v1/brawlers — reused here instead of re-deriving
+      // similar-but-inconsistent parsing per call site.
+      const validated = validateProxyEnvelope(proxyResult);
+      if (!validated) {
+        await catalogRepo.completeFetchRun(pool, fetchRunId, {
+          status: "failed",
+          httpStatus: proxyResult.httpStatus,
+          errorCode: "invalid_proxy_response",
+          changesDetectedCount: 0,
+          durationMs: 0,
+        });
+        results.push({ region, outcome: "failed", entriesFetched: 0, reason: "invalid_proxy_response" });
+        continue;
+      }
+
+      const items = validated.payload.items;
       const { valid, rejected } = validatePlayerRankingItems(items);
 
       const payloadJson = stableStringify(items);
