@@ -9,10 +9,12 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/auth.test.ts tests/changeDetection.test.ts tests/dbIntegration.test.ts tests/migrations.test.ts tests/normalize.test.ts tests/schema.test.ts",
+    "test": "tsx --test tests/auth.test.ts tests/changeDetection.test.ts tests/dbIntegration.test.ts tests/migrations.test.ts tests/normalize.test.ts tests/schema.test.ts tests/battleId.test.ts tests/ingestionSchemas.test.ts tests/ingestionTagsAndRetry.test.ts tests/ingestionRoutesAuth.test.ts tests/ingestionDbIntegration.test.ts",
     "migrate:status": "node scripts/migrate.mjs status",
     "migrate:up": "node scripts/migrate.mjs up",
     "seed:catalog-source": "node scripts/seed-catalog-source.mjs",
+    "seed:ingestion-sources": "node scripts/seed-ingestion-sources.mjs",
+    "seed:ingestion-budgets": "node scripts/seed-ingestion-budgets.mjs",
     "fingerprint:db-password": "node scripts/fingerprint-db-password.mjs"
   },
   "dependencies": {

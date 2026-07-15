@@ -47,11 +47,15 @@ Copy `.env.example` to `.env.local` and fill in real values locally. **Never com
 
 ## Status
 
-Phase 1 (infrastructure proof-of-concept) and Phase 2 (production database
-schema + canonical Brawler catalog vertical slice) are locally complete —
-see [`PHASE2.md`](./PHASE2.md) for the migration system, table inventory,
-sync pipeline, and known limitations (no Hostinger MCP / no local DB
-credentials this session, so nothing has been applied to production yet).
-No ranking engine or public content pages have been implemented. See
+Phase 1 (infrastructure proof-of-concept), Phase 2 (production database
+schema + canonical Brawler catalog vertical slice), and Phase 3 (official
+API ingestion: rankings/player/club sync, sampling and crawl scheduling,
+the battle-log pipeline with deterministic dedup, rate-limit budgeting,
+retry/backoff) are locally complete — see [`PHASE2.md`](./PHASE2.md) and
+[`PHASE3.md`](./PHASE3.md) for the full design writeups and known
+limitations (no Hostinger MCP, no local DB credentials, and no verified
+DigitalOcean-proxy support for the new Phase 3 endpoints this session, so
+nothing has been applied to production yet). No ranking engine, aggregation,
+or public content pages have been implemented. See
 `BRAWLRANKS_WEBSITE_SPEC.md` Section 43 (Development Order) for the full
 build sequence.
