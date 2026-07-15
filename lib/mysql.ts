@@ -34,15 +34,15 @@ function createPool(): Pool {
   const port = parsePort(process.env.DB_PORT);
   const database = process.env.DB_NAME;
   const user = process.env.DB_USER;
-  // DB_PASSWORD is read once, verbatim, and passed straight to mysql2.
+  // DB_PASSWORD_V2 is read once, verbatim, and passed straight to mysql2.
   // It is never trimmed, re-encoded, quoted, or otherwise transformed —
   // any such transformation would silently change the credential the
-  // driver authenticates with.
-  const password = process.env.DB_PASSWORD;
+  // driver authenticates with. There is no fallback to DB_PASSWORD.
+  const password = process.env.DB_PASSWORD_V2;
 
   if (!host || !database || !user || !password) {
     throw new Error(
-      "MySQL connection is not configured (missing DB_HOST/DB_NAME/DB_USER/DB_PASSWORD)."
+      "MySQL connection is not configured (missing DB_HOST/DB_NAME/DB_USER/DB_PASSWORD_V2)."
     );
   }
 

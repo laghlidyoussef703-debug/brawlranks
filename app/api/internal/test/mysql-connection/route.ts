@@ -33,24 +33,25 @@ function safeConnectionInfo() {
 }
 
 /**
- * Fingerprints DB_PASSWORD without ever exposing or logging it. Only an
+ * Fingerprints DB_PASSWORD_V2 without ever exposing or logging it. Only an
  * 8-character SHA-256 prefix is returned — enough to compare against a
  * locally-computed fingerprint of the intended password
  * (see scripts/fingerprint-db-password.mjs), never enough to reconstruct it.
+ * There is no fallback to DB_PASSWORD.
  */
 function fingerprintPassword() {
-  const password = process.env.DB_PASSWORD;
+  const password = process.env.DB_PASSWORD_V2;
 
   if (password === undefined) {
     return {
-      dbPasswordLength: 0,
+      dbPasswordV2Length: 0,
       dbPasswordStartsWithWhitespace: false,
       dbPasswordEndsWithWhitespace: false,
       dbPasswordContainsNewline: false,
       dbPasswordContainsCarriageReturn: false,
       dbPasswordContainsSingleQuote: false,
       dbPasswordContainsDoubleQuote: false,
-      dbPasswordSha256Prefix: null as string | null,
+      dbPasswordV2Sha256Prefix: null as string | null,
     };
   }
 
@@ -60,14 +61,14 @@ function fingerprintPassword() {
     .slice(0, 8);
 
   return {
-    dbPasswordLength: password.length,
+    dbPasswordV2Length: password.length,
     dbPasswordStartsWithWhitespace: /^\s/.test(password),
     dbPasswordEndsWithWhitespace: /\s$/.test(password),
     dbPasswordContainsNewline: password.includes("\n"),
     dbPasswordContainsCarriageReturn: password.includes("\r"),
     dbPasswordContainsSingleQuote: password.includes("'"),
     dbPasswordContainsDoubleQuote: password.includes('"'),
-    dbPasswordSha256Prefix: sha256Prefix,
+    dbPasswordV2Sha256Prefix: sha256Prefix,
   };
 }
 
