@@ -16,7 +16,7 @@
 import type { PoolConnection } from "mysql2/promise";
 import { getPool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
-import { fetchPlayerBattleLogFromProxy } from "@/lib/proxy";
+import { fetchPlayerBattleLogFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validateBattleLogItems, type ValidatedBattleItem } from "@/lib/ingestion/schemas";
 import { computeBattleKey } from "@/lib/ingestion/battleId";
 import { classifyHttpStatus, decideRetry, computeBackoffMs } from "@/lib/ingestion/retry";
@@ -252,8 +252,37 @@ export async function runBattleLogCrawlBatch(
         continue;
       }
 
-      const body = proxyResult.body as { ok?: boolean; items?: unknown[] } | null;
-      const items = body && Array.isArray(body.items) ? body.items : [];
+      // The DigitalOcean proxy's envelope nests the official API's data
+      // under `payload` (matching /v1/brawlers' contract exactly —
+      // { ok, status, fetchedAt, payload: { items } }), never at the top
+      // level. validateProxyEnvelope is the same helper lib/catalog/sync.ts
+      // and lib/ingestion/sync/rankingSeedSync.ts already use — reused here
+      // instead of re-deriving parsing logic per call site (the previous
+      // `body.items` read was always undefined against the real envelope,
+      // so every successful fetch silently became zero battles).
+      const validated = validateProxyEnvelope(proxyResult);
+      if (!validated) {
+        const failureCount = await ingestionRepo.getConsecutiveFailureCount(pool, tag);
+        const isDead = failureCount + 1 >= MAX_CONSECUTIVE_CRAWL_FAILURES;
+
+        await catalogRepo.completeFetchRun(pool, fetchRunId, {
+          status: "failed",
+          httpStatus: proxyResult.httpStatus,
+          errorCode: "invalid_proxy_response",
+          changesDetectedCount: 0,
+          durationMs: 0,
+        });
+
+        await ingestionRepo.recordCrawlOutcome(
+          pool,
+          tag,
+          isDead ? "failure_dead" : "failure_retryable",
+          computeBackoffMs(failureCount + 1)
+        );
+        continue;
+      }
+
+      const items = validated.payload.items;
       const { valid, rejected } = validateBattleLogItems(items);
 
       const payloadJson = stableStringify(items);
