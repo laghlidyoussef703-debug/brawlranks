@@ -72,6 +72,28 @@ function fingerprintPassword() {
   };
 }
 
+/**
+ * Fingerprints ENV_PROBE_20260715 the same safe way as the password
+ * fingerprints above: only a length and an 8-character SHA-256 prefix are
+ * ever returned, never the actual value. This is a standalone diagnostic
+ * probe, unrelated to and never used by the MySQL connection logic.
+ */
+function fingerprintEnvProbe() {
+  const value = process.env.ENV_PROBE_20260715;
+
+  if (value === undefined) {
+    return {
+      envProbeLength: 0,
+      envProbeSha256Prefix: null as string | null,
+    };
+  }
+
+  return {
+    envProbeLength: value.length,
+    envProbeSha256Prefix: createHash("sha256").update(value, "utf8").digest("hex").slice(0, 8),
+  };
+}
+
 interface TcpCheckResult {
   tcpReachable: boolean;
   tcpAddressFamily: string | null;
@@ -171,9 +193,12 @@ export async function GET(request: Request) {
         tcpDurationMs: 0,
       };
 
+  const envProbe = fingerprintEnvProbe();
+
   const commonFields = {
     ...connectionInfo,
     ...passwordFingerprint,
+    ...envProbe,
     ...tcpCheck,
     nodeVersion,
     mysqlDriverVersion,
