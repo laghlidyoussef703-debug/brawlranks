@@ -25,7 +25,7 @@ async function insertSnapshot(params: {
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO api_test_snapshots
        (source, endpoint, http_status, payload, payload_hash, fetched_at, received_at, run_id)
-     VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       SOURCE,
       ENDPOINT,
@@ -75,7 +75,8 @@ export async function POST(request: Request) {
         proxyReached: false,
         officialApiReached: false,
         officialApiStatus: null,
-        mysqlStored: false,
+        mysqlConnected: false,
+        snapshotInserted: false,
         durationMs: durationMsBase(),
       },
       { status: 502 }
@@ -95,7 +96,8 @@ export async function POST(request: Request) {
         proxyReached: true,
         officialApiReached: false,
         officialApiStatus: proxyResult.httpStatus,
-        mysqlStored: false,
+        mysqlConnected: false,
+        snapshotInserted: false,
         durationMs: durationMsBase(),
       },
       { status: 502 }
@@ -106,13 +108,14 @@ export async function POST(request: Request) {
   const payloadHash = sha256Hex(payloadJson);
   const fetchedAt = new Date(validated.fetchedAt);
   const fetchedAtSafe = Number.isNaN(fetchedAt.getTime()) ? new Date() : fetchedAt;
+  const brawlerCount = Array.isArray(validated.payload.items) ? validated.payload.items.length : 0;
 
-  let snapshotId: number | null = null;
+  let insertId: number | null = null;
   let attempts = 0;
 
-  while (snapshotId === null) {
+  while (insertId === null) {
     try {
-      snapshotId = await insertSnapshot({
+      insertId = await insertSnapshot({
         runId,
         httpStatus: validated.officialApiStatus,
         payloadJson,
@@ -133,7 +136,9 @@ export async function POST(request: Request) {
           proxyReached: true,
           officialApiReached: true,
           officialApiStatus: validated.officialApiStatus,
-          mysqlStored: false,
+          brawlerCount,
+          mysqlConnected: false,
+          snapshotInserted: false,
           durationMs: durationMsBase(),
         },
         { status: 500 }
@@ -147,8 +152,10 @@ export async function POST(request: Request) {
     proxyReached: true,
     officialApiReached: true,
     officialApiStatus: validated.officialApiStatus,
-    mysqlStored: true,
-    snapshotId,
+    brawlerCount,
+    mysqlConnected: true,
+    snapshotInserted: true,
+    insertId,
     payloadHash,
     durationMs: durationMsBase(),
   });

@@ -33,28 +33,26 @@ function safeConnectionInfo() {
 }
 
 /**
- * TEMPORARY WORKAROUND: ENV_PROBE_20260715 is now the actual MySQL
- * credential source (see lib/mysql.ts) because Hostinger has proven it is
- * injected correctly, while every password-named variable
- * (DB_PASSWORD, DB_PASSWORD_V2, MYSQL_PASSWORD_20260715,
- * MYSQL_AUTH_20260715) receives a stale value. Fingerprints it without
- * ever exposing or logging it — only an 8-character SHA-256 prefix is
- * returned, never enough to reconstruct it. There is no fallback to any
- * other variable.
+ * Fingerprints BRAWL_DB_SECRET_V1 — the production MySQL password source
+ * (see lib/mysql.ts) — without ever exposing or logging it. Only an
+ * 8-character SHA-256 prefix is returned, never enough to reconstruct it.
+ * There is no fallback to DB_PASSWORD, DB_PASSWORD_V2,
+ * MYSQL_PASSWORD_20260715, MYSQL_AUTH_20260715, MYSQL_AUTH_B64_20260715,
+ * ENV_PROBE_20260715, or any other variable.
  */
 function fingerprintPassword() {
-  const password = process.env.ENV_PROBE_20260715;
+  const password = process.env.BRAWL_DB_SECRET_V1;
 
   if (password === undefined) {
     return {
-      mysqlRuntimeSecretLength: 0,
+      brawlDbSecretLength: 0,
       dbPasswordStartsWithWhitespace: false,
       dbPasswordEndsWithWhitespace: false,
       dbPasswordContainsNewline: false,
       dbPasswordContainsCarriageReturn: false,
       dbPasswordContainsSingleQuote: false,
       dbPasswordContainsDoubleQuote: false,
-      mysqlRuntimeSecretSha256Prefix: null as string | null,
+      brawlDbSecretSha256Prefix: null as string | null,
     };
   }
 
@@ -64,14 +62,14 @@ function fingerprintPassword() {
     .slice(0, 8);
 
   return {
-    mysqlRuntimeSecretLength: password.length,
+    brawlDbSecretLength: password.length,
     dbPasswordStartsWithWhitespace: /^\s/.test(password),
     dbPasswordEndsWithWhitespace: /\s$/.test(password),
     dbPasswordContainsNewline: password.includes("\n"),
     dbPasswordContainsCarriageReturn: password.includes("\r"),
     dbPasswordContainsSingleQuote: password.includes("'"),
     dbPasswordContainsDoubleQuote: password.includes('"'),
-    mysqlRuntimeSecretSha256Prefix: sha256Prefix,
+    brawlDbSecretSha256Prefix: sha256Prefix,
   };
 }
 

@@ -40,7 +40,7 @@ Copy `.env.example` to `.env.local` and fill in real values locally. **Never com
 
 | Variable | Purpose |
 |---|---|
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD_V2` | Hostinger MySQL connection (server-only) |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `BRAWL_DB_SECRET_V1` | Hostinger MySQL connection (server-only) |
 | `DIGITALOCEAN_PROXY_URL` | Base URL of the DigitalOcean fixed-IP proxy service |
 | `PROXY_SHARED_SECRET` | Shared secret for signing requests to the DigitalOcean proxy |
 | `INTERNAL_CRON_SECRET` | Authenticates Hostinger cron calls into protected internal endpoints |
