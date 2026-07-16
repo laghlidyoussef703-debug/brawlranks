@@ -69,16 +69,48 @@ export async function createFetchRun(
     sourceEndpointId: string;
     workflowRunId: string | null;
     triggerType: "manual" | "cron" | "api";
+    /** Fetch-specific parameters (e.g. { countryCode }, { playerTag }, { clubTag }) for run traceability (migration 0009) — never a secret. */
+    requestContext?: Record<string, string>;
   }
 ): Promise<string> {
   const id = randomUUID();
   await db.execute(
     `INSERT INTO data_fetch_runs
-       (id, data_source_id, source_endpoint_id, workflow_run_id, trigger_type, status, started_at)
-     VALUES (?, ?, ?, ?, ?, 'running', NOW(3))`,
-    [id, params.dataSourceId, params.sourceEndpointId, params.workflowRunId, params.triggerType]
+       (id, data_source_id, source_endpoint_id, workflow_run_id, trigger_type, status, started_at, request_context)
+     VALUES (?, ?, ?, ?, ?, 'running', NOW(3), ?)`,
+    [
+      id,
+      params.dataSourceId,
+      params.sourceEndpointId,
+      params.workflowRunId,
+      params.triggerType,
+      params.requestContext ? JSON.stringify(params.requestContext) : null,
+    ]
   );
   return id;
+}
+
+/**
+ * Whether a fetch against this endpoint with this exact request_context
+ * has been attempted within `windowMs` — used to avoid re-attempting a
+ * recently-failed or recently-succeeded fetch for the same target (e.g.
+ * the same club tag) from an automatic trigger (Phase 4.6).
+ */
+export async function hasRecentFetchRunForContext(
+  db: Queryable,
+  sourceEndpointId: string,
+  requestContext: Record<string, string>,
+  windowMs: number
+): Promise<boolean> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM data_fetch_runs
+      WHERE source_endpoint_id = ?
+        AND request_context = ?
+        AND started_at >= DATE_SUB(NOW(3), INTERVAL ? MICROSECOND)
+      LIMIT 1`,
+    [sourceEndpointId, JSON.stringify(requestContext), windowMs * 1000]
+  );
+  return rows.length > 0;
 }
 
 export async function completeFetchRun(
@@ -455,30 +487,61 @@ export async function insertDetectedChange(
 // data_incidents
 // ---------------------------------------------------------------------------
 
+/**
+ * Creates an incident, or — when `signature` is supplied (Phase 4.7,
+ * lib/ingestion/incidents.ts#computeIncidentSignature) — upserts into the
+ * existing open-or-resolved row for that exact recurring root cause
+ * instead of always inserting a new row: occurrence_count increments,
+ * last_seen_at bumps, and a previously-resolved incident reopens (status
+ * reset to 'open') rather than accumulating a second closed row for the
+ * same issue. Callers that don't pass a signature (or pass one that
+ * collides with nothing) simply get a fresh row, unchanged from the
+ * pre-Phase-4 behavior — signature is nullable and MySQL/MariaDB UNIQUE
+ * indexes never collide two NULLs, so this is fully backward compatible.
+ */
 export async function createIncident(
   db: Queryable,
   params: {
     incidentType: string;
+    dataCategory?: string | null;
     relatedFetchRunId?: string | null;
     relatedEntityType?: string | null;
     relatedEntityId?: string | null;
     detail?: unknown;
+    signature?: string | null;
   }
 ): Promise<string> {
   const id = randomUUID();
   await db.execute(
     `INSERT INTO data_incidents
-       (id, incident_type, related_fetch_run_id, related_entity_type, related_entity_id, detail, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+       (id, incident_type, data_category, related_fetch_run_id, related_entity_type, related_entity_id, detail, signature, occurrence_count, last_seen_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(3), 'open')
+     ON DUPLICATE KEY UPDATE
+       occurrence_count = occurrence_count + 1,
+       last_seen_at = NOW(3),
+       related_fetch_run_id = VALUES(related_fetch_run_id),
+       related_entity_id = VALUES(related_entity_id),
+       detail = VALUES(detail),
+       status = IF(status = 'resolved', 'open', status)`,
     [
       id,
       params.incidentType,
+      params.dataCategory ?? null,
       params.relatedFetchRunId ?? null,
       params.relatedEntityType ?? null,
       params.relatedEntityId ?? null,
       params.detail !== undefined ? JSON.stringify(params.detail) : null,
+      params.signature ?? null,
     ]
   );
+
+  if (params.signature) {
+    const [rows] = await db.query<RowDataPacket[]>(
+      "SELECT id FROM data_incidents WHERE incident_type = ? AND signature = ?",
+      [params.incidentType, params.signature]
+    );
+    if (rows.length > 0) return rows[0].id as string;
+  }
   return id;
 }
 

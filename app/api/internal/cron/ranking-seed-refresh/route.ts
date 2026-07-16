@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 import { verifyInternalCronBearer } from "@/lib/auth";
 import { errorBody, logSafeError } from "@/lib/errors";
 import { runRankingSeedSync } from "@/lib/ingestion/sync/rankingSeedSync";
-import { INITIAL_RANKING_REGIONS } from "@/lib/ingestion/config";
+import { INITIAL_RANKING_REGIONS, MAX_REGIONS_PER_REQUEST } from "@/lib/ingestion/config";
+import { isValidCountryCodeShape, normalizeCountryCode } from "@/lib/ingestion/regions";
 
 export const runtime = "nodejs";
-
-const MAX_REGIONS_PER_REQUEST = 5;
-const REGION_PATTERN = /^[a-z]{2}$|^global$/i;
 
 export async function POST(request: Request) {
   const auth = verifyInternalCronBearer(request);
@@ -20,9 +18,15 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     if (body && Array.isArray(body.regions)) {
-      const candidateRegions = body.regions.filter((r: unknown): r is string => typeof r === "string" && REGION_PATTERN.test(r));
+      const rawRegions: unknown[] = body.regions;
+      const candidateRegions: string[] = [];
+      for (const raw of rawRegions) {
+        if (typeof raw !== "string" || !isValidCountryCodeShape(raw)) continue;
+        const normalized = normalizeCountryCode(raw);
+        if (normalized !== null) candidateRegions.push(normalized);
+      }
       if (candidateRegions.length > 0) {
-        regions = candidateRegions.slice(0, MAX_REGIONS_PER_REQUEST);
+        regions = [...new Set(candidateRegions)].slice(0, MAX_REGIONS_PER_REQUEST);
       }
     }
   } catch {

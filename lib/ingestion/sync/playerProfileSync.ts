@@ -11,6 +11,7 @@ import { validatePlayerPayload } from "@/lib/ingestion/schemas";
 import { classifyHttpStatus, decideRetry } from "@/lib/ingestion/retry";
 import { tryConsumeBudget } from "@/lib/ingestion/rateBudget";
 import { validateAndNormalizeTag, encodeTagForPath } from "@/lib/ingestion/tags";
+import { computeIncidentSignature } from "@/lib/ingestion/incidents";
 import { ENDPOINT_CATEGORY, DATA_SOURCE_NAME } from "@/lib/ingestion/config";
 import * as catalogRepo from "@/lib/catalog/repository";
 import * as ingestionRepo from "@/lib/ingestion/repository";
@@ -19,6 +20,18 @@ export interface PlayerProfileSyncResult {
   tag: string;
   outcome: "success" | "unreachable" | "failed" | "invalid_tag" | "budget_exhausted" | "prerequisites_missing";
   reason?: string;
+  /**
+   * Set when this player references a club tag that isn't normalized yet
+   * (Phase 4.6). Always preserved on the player row via pending_club_tag
+   * (migration 0017) regardless of what the caller does with this value.
+   * Deliberately NOT auto-fetched inline here — a batch of many players
+   * could reference many distinct unknown clubs, and triggering a full
+   * club fetch per player risks a single Hostinger-invoked request running
+   * long (Section 24.6). Callers that want to resolve these (e.g. the
+   * player-crawl-batch route) do so afterward, in a small, explicitly
+   * bounded pass — see app/api/internal/cron/player-crawl-batch/route.ts.
+   */
+  pendingClubTag?: string | null;
 }
 
 /**
@@ -56,6 +69,7 @@ export async function syncOnePlayerProfile(
     sourceEndpointId: endpoint.id,
     workflowRunId,
     triggerType: fetchTriggerType,
+    requestContext: { playerTag: tag },
   });
 
   const proxyResult = await fetchPlayerFromProxy(encodeTagForPath(tag));
@@ -102,17 +116,29 @@ export async function syncOnePlayerProfile(
     });
     await catalogRepo.createIncident(pool, {
       incidentType: "schema_mismatch",
+      dataCategory: "player",
       relatedFetchRunId: fetchRunId,
       relatedEntityType: "player",
       relatedEntityId: tag,
+      signature: computeIncidentSignature({
+        incidentType: "schema_mismatch",
+        dataCategory: "player",
+        relatedEntityType: "player",
+        reasonKey: "player_payload_validation_failed",
+      }),
     });
     return { tag, outcome: "failed", reason: "schema_mismatch" };
   }
 
   let clubId: string | null = null;
+  let pendingClubTag: string | null = null;
   if (validated.clubTag) {
     const club = await ingestionRepo.getClubByTag(pool, validated.clubTag);
-    clubId = club?.id ?? null;
+    if (club) {
+      clubId = club.id;
+    } else {
+      pendingClubTag = validated.clubTag;
+    }
   }
 
   await ingestionRepo.upsertNormalizedPlayer(pool, {
@@ -123,6 +149,7 @@ export async function syncOnePlayerProfile(
     highestTrophies: validated.highestTrophies,
     expLevel: validated.expLevel,
     clubId,
+    pendingClubTag,
     fetchRunId,
   });
 
@@ -134,5 +161,5 @@ export async function syncOnePlayerProfile(
     durationMs: 0,
   });
 
-  return { tag, outcome: "success" };
+  return { tag, outcome: "success", pendingClubTag };
 }

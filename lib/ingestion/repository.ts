@@ -7,6 +7,16 @@
 
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { candidateFetchLimit, selectFairBatch, type DueCandidate } from "@/lib/ingestion/fairness";
+import { CRAWL_CADENCE } from "@/lib/ingestion/cadence";
+import { validateAndNormalizeTag } from "@/lib/ingestion/tags";
+
+const {
+  PRIORITY_DECAY_PER_FAILURE,
+  PRIORITY_RECOVERY_PER_SUCCESS,
+  PRIORITY_FLOOR,
+  PRIORITY_CEILING,
+} = CRAWL_CADENCE;
 
 type Queryable = Pool | PoolConnection;
 
@@ -85,6 +95,27 @@ export async function getPlayerByTag(db: Queryable, tag: string): Promise<Player
   return { id: rows[0].id, displayName: rows[0].display_name };
 }
 
+/**
+ * Fair, bounded selection of never-actually-profiled player stubs (Phase
+ * 4.4 extension of the cadence concept to profile-fetch, not just
+ * battle-log-fetch). `trophies IS NULL` reliably distinguishes a row
+ * created only via ensurePlayerStub (battle-participant discovery, no real
+ * profile fetch yet) from one that has ever gone through
+ * upsertNormalizedPlayer — no new column or migration needed. Ordered
+ * oldest-discovered-first (FIFO) so a burst of newly discovered stubs can
+ * never starve players discovered earlier.
+ */
+export async function getUnprofiledPlayerTags(db: Queryable, limit: number): Promise<string[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT player_tag FROM normalized_players
+      WHERE trophies IS NULL AND is_reachable = 1
+      ORDER BY first_seen_at ASC
+      LIMIT ?`,
+    [limit]
+  );
+  return rows.map((r) => r.player_tag as string);
+}
+
 export async function upsertNormalizedPlayer(
   db: Queryable,
   params: {
@@ -95,6 +126,8 @@ export async function upsertNormalizedPlayer(
     highestTrophies: number | null;
     expLevel: number | null;
     clubId: string | null;
+    /** Set when the player's profile references a club tag that isn't normalized yet — cleared once club_id resolves (migration 0017). */
+    pendingClubTag: string | null;
     fetchRunId: string;
   }
 ): Promise<string> {
@@ -105,8 +138,8 @@ export async function upsertNormalizedPlayer(
     await db.execute(
       `INSERT INTO normalized_players
          (id, player_tag, display_name, name_color, trophies, highest_trophies, exp_level, club_id,
-          is_reachable, first_seen_at, last_seen_at, last_fetch_run_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3), ?)`,
+          pending_club_tag, is_reachable, first_seen_at, last_seen_at, last_fetch_run_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3), ?)`,
       [
         id,
         params.tag,
@@ -116,6 +149,7 @@ export async function upsertNormalizedPlayer(
         params.highestTrophies,
         params.expLevel,
         params.clubId,
+        params.clubId ? null : params.pendingClubTag,
         params.fetchRunId,
       ]
     );
@@ -133,7 +167,7 @@ export async function upsertNormalizedPlayer(
   await db.execute(
     `UPDATE normalized_players
         SET display_name = ?, name_color = ?, trophies = ?, highest_trophies = ?, exp_level = ?,
-            club_id = ?, is_reachable = 1, unreachable_reason = NULL, last_seen_at = NOW(3),
+            club_id = ?, pending_club_tag = ?, is_reachable = 1, unreachable_reason = NULL, last_seen_at = NOW(3),
             last_fetch_run_id = ?
       WHERE id = ?`,
     [
@@ -143,6 +177,7 @@ export async function upsertNormalizedPlayer(
       params.highestTrophies,
       params.expLevel,
       params.clubId,
+      params.clubId ? null : params.pendingClubTag,
       params.fetchRunId,
       existing.id,
     ]
@@ -197,6 +232,22 @@ export async function getClubByTag(db: Queryable, tag: string): Promise<ClubRow 
   return rows.length > 0 ? { id: rows[0].id } : null;
 }
 
+/**
+ * Resolves every normalized_players row that recorded this club tag as
+ * pending (Phase 4.6/migration 0017) to the now-normalized club's real id,
+ * in one bounded UPDATE — called immediately after a club is successfully
+ * upserted (lib/ingestion/sync/clubSync.ts), so every player who was
+ * waiting on this exact club gets linked at once, not just the one whose
+ * profile fetch happened to trigger the ingestion.
+ */
+export async function backfillPendingClubLinks(db: Queryable, clubTag: string, clubId: string): Promise<number> {
+  const [result] = await db.execute<ResultSetHeader>(
+    "UPDATE normalized_players SET club_id = ?, pending_club_tag = NULL WHERE pending_club_tag = ?",
+    [clubId, clubTag]
+  );
+  return result.affectedRows;
+}
+
 export async function upsertNormalizedClub(
   db: Queryable,
   params: {
@@ -241,6 +292,15 @@ export async function upsertNormalizedClub(
 // seed_players / observed_players
 // ---------------------------------------------------------------------------
 
+/**
+ * trophy_bracket is refreshed on every re-observation (Phase 4.2's
+ * "reassign bracket safely when player trophies change") — the caller
+ * recomputes it from the freshly observed trophy count each time
+ * (lib/ingestion/trophyBracket.ts#trophyBracketFor). region is
+ * deliberately NOT refreshed here: it represents which leaderboard first
+ * surfaced this player (a stable discovery-source tag for fairness
+ * stratification), not a live-changing attribute.
+ */
 export async function upsertSeedPlayer(
   db: Queryable,
   params: {
@@ -259,38 +319,86 @@ export async function upsertSeedPlayer(
      VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), 0)
      ON DUPLICATE KEY UPDATE
        latest_rank = VALUES(latest_rank), latest_trophies = VALUES(latest_trophies),
+       trophy_bracket = VALUES(trophy_bracket),
        last_observed_at = VALUES(last_observed_at), is_stale = 0`,
     [id, params.tag, params.seedSource, params.region, params.trophyBracket, params.rank, params.trophies]
   );
 }
 
+/**
+ * Validates the tag's format (lib/ingestion/tags.ts — the same check every
+ * proxy-bound tag goes through) before it can ever enter observed_players,
+ * and therefore before it can ever reach player_crawl_schedule via
+ * promotion. This is the single, central enforcement point: neither
+ * battle-participant tags nor club-member tags are independently validated
+ * before being handed to this function, so validating here (rather than
+ * relying on every call site to remember to) is what actually prevents a
+ * malformed or malicious tag from ever entering the crawl schedule
+ * (Phase 4.5's explicit requirement). An invalid tag is silently dropped —
+ * not an error, since a single malformed participant/member entry must
+ * never fail the surrounding battle/club ingestion.
+ */
 export async function recordObservedPlayer(
   db: Queryable,
   tag: string,
   sourceType: string,
   sourceDetail: unknown
 ): Promise<void> {
+  const tagResult = validateAndNormalizeTag(tag);
+  if (!tagResult.valid || !tagResult.normalized) return;
+
   const id = randomUUID();
   await db.execute(
     `INSERT INTO observed_players (id, player_tag, source_type, source_detail)
      VALUES (?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE source_type = source_type`,
-    [id, tag, sourceType, sourceDetail !== undefined ? JSON.stringify(sourceDetail) : null]
+    [id, tagResult.normalized, sourceType, sourceDetail !== undefined ? JSON.stringify(sourceDetail) : null]
   );
+}
+
+export interface UnpromotedObservedPlayer {
+  tag: string;
+  sourceType: string;
+  /** club tag extracted from source_detail for club_member observations, else null — lets discovery sub-group by club so one large club can't dominate the whole club_member bucket. Never a secret, never used as anything but a grouping key. */
+  clubTag: string | null;
 }
 
 export async function getUnpromotedObservedPlayers(
   db: Queryable,
   limit: number
-): Promise<Array<{ tag: string; sourceType: string }>> {
+): Promise<UnpromotedObservedPlayer[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT player_tag, source_type FROM observed_players
+    `SELECT player_tag, source_type, source_detail FROM observed_players
       WHERE promoted_to_active = 0
       ORDER BY first_observed_at ASC
       LIMIT ?`,
     [limit]
   );
-  return rows.map((row) => ({ tag: row.player_tag, sourceType: row.source_type }));
+  return rows.map((row) => {
+    let clubTag: string | null = null;
+    if (row.source_type === "club_member" && typeof row.source_detail === "string") {
+      try {
+        const parsed = JSON.parse(row.source_detail) as { clubTag?: unknown };
+        if (typeof parsed.clubTag === "string") clubTag = parsed.clubTag;
+      } catch {
+        // Malformed source_detail JSON — treat as no club grouping available, never throw.
+      }
+    }
+    return { tag: row.player_tag, sourceType: row.source_type, clubTag };
+  });
+}
+
+/** Current active player_crawl_schedule row counts grouped by stratum_source — used to promote from underrepresented strata first (Phase 4.5). */
+export async function getActiveCrawlCountsByStratumSource(db: Queryable): Promise<Record<string, number>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COALESCE(stratum_source, 'unknown') AS stratum_source, COUNT(*) AS count
+       FROM player_crawl_schedule
+      WHERE is_active = 1
+      GROUP BY stratum_source`
+  );
+  const counts: Record<string, number> = {};
+  for (const row of rows) counts[row.stratum_source] = row.count;
+  return counts;
 }
 
 export async function markObservedPlayerPromoted(db: Queryable, tag: string): Promise<void> {
@@ -304,6 +412,19 @@ export async function markObservedPlayerPromoted(db: Queryable, tag: string): Pr
 // player_crawl_schedule
 // ---------------------------------------------------------------------------
 
+/**
+ * Idempotent per player_tag. On a repeat call for an already-scheduled
+ * player (e.g. the same player appearing in a second ranking region, or
+ * being both a seed and an observed-discovery candidate), region and
+ * trophy_bracket are deliberately STICKY to whichever value was recorded
+ * first (`COALESCE(existing, new)`, existing preferred) — a player is
+ * never silently reassigned to a different stratum just because of scan
+ * order within one run or across repeated runs, which would otherwise make
+ * fairness stratification non-deterministic between runs. This is a
+ * discovery-source tag, not a live-updated attribute (contrast with
+ * seed_players.trophy_bracket in upsertSeedPlayer, which IS refreshed on
+ * every re-observation for a different, analytical purpose).
+ */
 export async function ensureCrawlScheduleEntry(
   db: Queryable,
   params: { tag: string; region: string | null; trophyBracket: string | null; stratumSource: string; priorityScore: number }
@@ -314,18 +435,25 @@ export async function ensureCrawlScheduleEntry(
        (id, player_tag, priority_score, next_due_at, region, trophy_bracket, stratum_source, is_active)
      VALUES (?, ?, ?, NOW(3), ?, ?, ?, 1)
      ON DUPLICATE KEY UPDATE
-       region = COALESCE(VALUES(region), region),
-       trophy_bracket = COALESCE(VALUES(trophy_bracket), trophy_bracket)`,
+       region = COALESCE(region, VALUES(region)),
+       trophy_bracket = COALESCE(trophy_bracket, VALUES(trophy_bracket))`,
     [id, params.tag, params.priorityScore, params.region, params.trophyBracket, params.stratumSource]
   );
 }
 
 /**
- * Clears any lease whose expires_at has passed (stuck-run recovery), then
- * selects up to `batchSize` due, unleased, non-backed-off active rows with
- * `FOR UPDATE SKIP LOCKED`, and immediately leases them to `runId`. Must be
- * called on a connection that is inside an open transaction — the caller
- * commits to persist the lease and release the row locks.
+ * Clears any lease whose expires_at has passed (stuck-run recovery), fetches
+ * an oversampled, bounded candidate set with `FOR UPDATE SKIP LOCKED`
+ * (locking every fetched row for the duration of this transaction, so no
+ * other concurrent selection can grab the same candidates), applies
+ * deterministic stratified fair selection (lib/ingestion/fairness.ts) to
+ * pick exactly `batchSize` of them across region/trophy-bracket strata, and
+ * leases only that selected subset to `runId`. Candidates that were locked
+ * but not selected are simply released back to selectability the moment
+ * this (short-lived, selection-only) transaction commits — they were never
+ * written to, only momentarily row-locked. Must be called on a connection
+ * that is inside an open transaction — the caller commits to persist the
+ * lease and release the row locks.
  */
 export async function selectAndLeaseDuePlayers(
   connection: PoolConnection,
@@ -340,19 +468,32 @@ export async function selectAndLeaseDuePlayers(
   );
 
   const [rows] = await connection.query<RowDataPacket[]>(
-    `SELECT id, player_tag FROM player_crawl_schedule
+    `SELECT id, player_tag, region, trophy_bracket, next_due_at, priority_score
+       FROM player_crawl_schedule
       WHERE is_active = 1 AND next_due_at <= NOW(3)
         AND (backoff_until IS NULL OR backoff_until <= NOW(3))
         AND leased_by_run_id IS NULL
-      ORDER BY priority_score DESC, next_due_at ASC
+      ORDER BY next_due_at ASC
       LIMIT ?
       FOR UPDATE SKIP LOCKED`,
-    [batchSize]
+    [candidateFetchLimit(batchSize)]
   );
 
   if (rows.length === 0) return [];
 
-  const ids = rows.map((row) => row.id as string);
+  const candidates: DueCandidate[] = rows.map((row) => ({
+    id: row.id,
+    playerTag: row.player_tag,
+    region: row.region,
+    trophyBracket: row.trophy_bracket,
+    nextDueAt: row.next_due_at,
+    priorityScore: Number(row.priority_score),
+  }));
+
+  const selected = selectFairBatch(candidates, batchSize);
+  if (selected.length === 0) return [];
+
+  const ids = selected.map((c) => c.id);
   const placeholders = ids.map(() => "?").join(", ");
   await connection.execute(
     `UPDATE player_crawl_schedule
@@ -361,11 +502,20 @@ export async function selectAndLeaseDuePlayers(
     [runId, leaseSeconds, ...ids]
   );
 
-  return rows.map((row) => row.player_tag as string);
+  return selected.map((c) => c.playerTag);
 }
 
 export type CrawlOutcome = "success" | "failure_retryable" | "failure_dead";
 
+/**
+ * Applies the crawl outcome to a player's schedule row, including a small,
+ * bounded within-stratum priority adjustment (Phase 4.4 — "priority
+ * adjustments for freshness and failures"): a retryable failure nudges
+ * priority_score down (a struggling-but-not-dead player yields to
+ * healthier same-stratum peers), a success nudges it back up, both clamped
+ * to [PRIORITY_FLOOR, PRIORITY_CEILING] so this can never runaway in
+ * either direction or override the primary next_due_at ordering.
+ */
 export async function recordCrawlOutcome(
   db: Queryable,
   playerTag: string,
@@ -377,18 +527,20 @@ export async function recordCrawlOutcome(
       `UPDATE player_crawl_schedule
           SET last_crawled_at = NOW(3), next_due_at = DATE_ADD(NOW(3), INTERVAL ? MICROSECOND),
               consecutive_failure_count = 0, backoff_until = NULL,
+              priority_score = LEAST(priority_score + ?, ?),
               leased_by_run_id = NULL, lease_expires_at = NULL
         WHERE player_tag = ?`,
-      [nextAttemptDelayMs * 1000, playerTag]
+      [nextAttemptDelayMs * 1000, PRIORITY_RECOVERY_PER_SUCCESS, PRIORITY_CEILING, playerTag]
     );
   } else if (outcome === "failure_retryable") {
     await db.execute(
       `UPDATE player_crawl_schedule
           SET consecutive_failure_count = consecutive_failure_count + 1,
               backoff_until = DATE_ADD(NOW(3), INTERVAL ? MICROSECOND),
+              priority_score = GREATEST(priority_score - ?, ?),
               leased_by_run_id = NULL, lease_expires_at = NULL
         WHERE player_tag = ?`,
-      [nextAttemptDelayMs * 1000, playerTag]
+      [nextAttemptDelayMs * 1000, PRIORITY_DECAY_PER_FAILURE, PRIORITY_FLOOR, playerTag]
     );
   } else {
     await db.execute(

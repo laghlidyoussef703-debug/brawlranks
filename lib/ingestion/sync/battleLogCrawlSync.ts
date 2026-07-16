@@ -19,15 +19,16 @@ import { stableStringify, sha256Hex } from "@/lib/hash";
 import { fetchPlayerBattleLogFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validateBattleLogItems, type ValidatedBattleItem } from "@/lib/ingestion/schemas";
 import { computeBattleKey } from "@/lib/ingestion/battleId";
-import { classifyHttpStatus, decideRetry, computeBackoffMs } from "@/lib/ingestion/retry";
+import { classifyHttpStatus, decideRetry } from "@/lib/ingestion/retry";
+import { computeSuccessDelayMs, computeCrawlFailureBackoffMs } from "@/lib/ingestion/cadence";
 import { tryConsumeBudget } from "@/lib/ingestion/rateBudget";
 import { encodeTagForPath } from "@/lib/ingestion/tags";
+import { computeIncidentSignature } from "@/lib/ingestion/incidents";
 import {
   ENDPOINT_CATEGORY,
   DATA_SOURCE_NAME,
   DEFAULT_CRAWL_BATCH_SIZE,
   DEFAULT_LEASE_SECONDS,
-  DEFAULT_RECRAWL_INTERVAL_MS,
   MAX_CONSECUTIVE_CRAWL_FAILURES,
 } from "@/lib/ingestion/config";
 import * as catalogRepo from "@/lib/catalog/repository";
@@ -100,9 +101,16 @@ async function processOneBattle(
   if (hasUnknownBrawler) {
     await catalogRepo.createIncident(connection, {
       incidentType: "unknown_entity",
+      dataCategory: "battle",
       relatedFetchRunId: fetchRunId,
       relatedEntityType: "brawler",
       detail: { reason: "battle referenced a brawler not in canonical_brawlers", battleTime: item.battleTime, mode: item.mode },
+      signature: computeIncidentSignature({
+        incidentType: "unknown_entity",
+        dataCategory: "battle",
+        relatedEntityType: "brawler",
+        reasonKey: "battle_unknown_brawler",
+      }),
     });
     return "quarantined";
   }
@@ -187,6 +195,8 @@ export async function runBattleLogCrawlBatch(
   let deduplicated = 0;
   let quarantined = 0;
   let processed = 0;
+  /** Phase 4.7 — "large rejection rates cause a degraded/held state": tracked across the whole batch, folds into the final workflow status. */
+  let highRejectionRateObserved = false;
 
   try {
     const leaseConnection = await pool.getConnection();
@@ -219,6 +229,7 @@ export async function runBattleLogCrawlBatch(
         sourceEndpointId: endpoint.id,
         workflowRunId,
         triggerType: triggeredBy,
+        requestContext: { playerTag: tag },
       });
 
       const proxyResult = await fetchPlayerBattleLogFromProxy(encodeTagForPath(tag));
@@ -246,7 +257,7 @@ export async function runBattleLogCrawlBatch(
             pool,
             tag,
             isDead ? "failure_dead" : "failure_retryable",
-            computeBackoffMs(failureCount + 1)
+            computeCrawlFailureBackoffMs(failureCount + 1)
           );
         }
         continue;
@@ -277,7 +288,7 @@ export async function runBattleLogCrawlBatch(
           pool,
           tag,
           isDead ? "failure_dead" : "failure_retryable",
-          computeBackoffMs(failureCount + 1)
+          computeCrawlFailureBackoffMs(failureCount + 1)
         );
         continue;
       }
@@ -296,11 +307,29 @@ export async function runBattleLogCrawlBatch(
       });
 
       if (rejected > 0) {
+        const totalItems = rejected + valid.length;
+        const rejectionRate = totalItems > 0 ? rejected / totalItems : 0;
+        // A high rejection rate (Phase 4.7) is tracked at the batch level
+        // and folds into the final workflow status below — distinct from
+        // a low, isolated rejection rate, which is recorded but never
+        // stops the rest of the crawl.
+        if (rejectionRate > 0.5) highRejectionRateObserved = true;
+
         await catalogRepo.createIncident(pool, {
           incidentType: "invalid_value",
+          dataCategory: "battle",
           relatedFetchRunId: fetchRunId,
           relatedEntityType: "battle",
-          detail: { rejectedCount: rejected, playerTag: tag },
+          detail: { rejectedCount: rejected, validCount: valid.length, rejectionRate, playerTag: tag },
+          // Deduplicated by root-cause class, not by fetch run — a
+          // recurring shape issue increments occurrence_count on one row
+          // instead of creating a new incident every crawl cycle.
+          signature: computeIncidentSignature({
+            incidentType: "invalid_value",
+            dataCategory: "battle",
+            relatedEntityType: "battle",
+            reasonKey: "battle_log_rejected_items",
+          }),
         });
       }
 
@@ -329,11 +358,21 @@ export async function runBattleLogCrawlBatch(
         durationMs: 0,
       });
 
-      await ingestionRepo.recordCrawlOutcome(pool, tag, "success", DEFAULT_RECRAWL_INTERVAL_MS);
+      // Cadence reflects whether this fetch actually produced new battles
+      // (Phase 4.4) — an active player is revisited sooner than one whose
+      // log came back empty, rather than a flat interval regardless of
+      // outcome.
+      await ingestionRepo.recordCrawlOutcome(pool, tag, "success", computeSuccessDelayMs(valid.length));
     }
 
-    const finalStatus = quarantined > 0 ? "succeeded_with_warnings" : "succeeded";
-    await completeWorkflowRun(pool, workflowRunId, finalStatus);
+    const finalStatus =
+      quarantined > 0 || highRejectionRateObserved ? "succeeded_with_warnings" : "succeeded";
+    await completeWorkflowRun(
+      pool,
+      workflowRunId,
+      finalStatus,
+      highRejectionRateObserved ? "high_rejection_rate_observed" : undefined
+    );
 
     return {
       outcome: finalStatus,

@@ -48,14 +48,20 @@ Copy `.env.example` to `.env.local` and fill in real values locally. **Never com
 ## Status
 
 Phase 1 (infrastructure proof-of-concept), Phase 2 (production database
-schema + canonical Brawler catalog vertical slice), and Phase 3 (official
-API ingestion: rankings/player/club sync, sampling and crawl scheduling,
-the battle-log pipeline with deterministic dedup, rate-limit budgeting,
-retry/backoff) are locally complete — see [`PHASE2.md`](./PHASE2.md) and
-[`PHASE3.md`](./PHASE3.md) for the full design writeups and known
+schema + canonical Brawler catalog vertical slice), Phase 3 (official API
+ingestion: rankings/player/club sync, sampling and crawl scheduling, the
+battle-log pipeline with deterministic dedup, rate-limit budgeting,
+retry/backoff), and Phase 4 (region/trophy-bracket sampling diversity,
+fair deterministic crawl scheduling, centralized cadence, discovery
+promotion fairness, club-ingestion bug fix, incident deduplication, data
+retention, coverage/readiness reporting) are locally complete — see
+[`PHASE2.md`](./PHASE2.md), [`PHASE3.md`](./PHASE3.md), and
+[`PHASE4.md`](./PHASE4.md) for the full design writeups and known
 limitations (no Hostinger MCP, no local DB credentials, and no verified
-DigitalOcean-proxy support for the new Phase 3 endpoints this session, so
-nothing has been applied to production yet). No ranking engine, aggregation,
-or public content pages have been implemented. See
+DigitalOcean-proxy support for any of these phases' endpoints this
+session, so nothing has been applied to production yet — the last known
+production figure, 575 battles, is explicitly documented in `PHASE4.md`
+as not yet sufficient for Phase 5). No ranking engine, aggregation, or
+public content pages have been implemented. See
 `BRAWLRANKS_WEBSITE_SPEC.md` Section 43 (Development Order) for the full
 build sequence.

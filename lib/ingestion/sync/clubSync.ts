@@ -12,6 +12,7 @@ import { validateClubPayload } from "@/lib/ingestion/schemas";
 import { classifyHttpStatus } from "@/lib/ingestion/retry";
 import { tryConsumeBudget } from "@/lib/ingestion/rateBudget";
 import { validateAndNormalizeTag, encodeTagForPath } from "@/lib/ingestion/tags";
+import { computeIncidentSignature } from "@/lib/ingestion/incidents";
 import { ENDPOINT_CATEGORY, DATA_SOURCE_NAME } from "@/lib/ingestion/config";
 import * as catalogRepo from "@/lib/catalog/repository";
 import * as ingestionRepo from "@/lib/ingestion/repository";
@@ -25,9 +26,23 @@ import {
 
 const WORKFLOW_SLUG = "club-expansion";
 
+/** Real in-game clubs cap near 100 members; this is a defensive ceiling in case a payload ever reports more, so member discovery can never be unbounded (Phase 4.6). */
+const MAX_CLUB_MEMBERS_TO_DISCOVER = 150;
+
+/** How recently the same club tag must have been fetched to skip a redundant re-fetch (Phase 4.6 — "prevent repeated fetching of the same club"). */
+const RECENT_FETCH_GUARD_MS = 6 * 60 * 60_000;
+
 export interface ClubSyncResult {
-  outcome: "succeeded" | "failed" | "invalid_tag" | "budget_exhausted" | "lock_not_acquired" | "prerequisites_missing";
+  outcome:
+    | "succeeded"
+    | "failed"
+    | "invalid_tag"
+    | "budget_exhausted"
+    | "lock_not_acquired"
+    | "prerequisites_missing"
+    | "recently_fetched";
   membersDiscovered?: number;
+  linkedPendingPlayers?: number;
   reason?: string;
 }
 
@@ -49,6 +64,17 @@ export async function runClubSync(clubTagRaw: string, triggeredBy: "manual" | "c
     return { outcome: "prerequisites_missing" };
   }
 
+  const requestContext = { clubTag: tag };
+  const recentlyFetched = await catalogRepo.hasRecentFetchRunForContext(
+    pool,
+    endpoint.id,
+    requestContext,
+    RECENT_FETCH_GUARD_MS
+  );
+  if (recentlyFetched) {
+    return { outcome: "recently_fetched", reason: "already fetched within the guard window" };
+  }
+
   const workflowRunId = await startWorkflowRun(pool, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
   const lock = await acquireWorkflowLock(pool, workflowDefinitionId, workflowRunId);
   if (!lock.acquired) {
@@ -68,6 +94,7 @@ export async function runClubSync(clubTagRaw: string, triggeredBy: "manual" | "c
       sourceEndpointId: endpoint.id,
       workflowRunId,
       triggerType: triggeredBy,
+      requestContext,
     });
 
     const proxyResult = await fetchClubFromProxy(encodeTagForPath(tag));
@@ -107,16 +134,23 @@ export async function runClubSync(clubTagRaw: string, triggeredBy: "manual" | "c
       });
       await catalogRepo.createIncident(pool, {
         incidentType: "schema_mismatch",
+        dataCategory: "club",
         relatedFetchRunId: fetchRunId,
         relatedEntityType: "club",
         relatedEntityId: tag,
         detail: { reason: "club payload failed validation" },
+        signature: computeIncidentSignature({
+          incidentType: "schema_mismatch",
+          dataCategory: "club",
+          relatedEntityType: "club",
+          reasonKey: "club_payload_validation_failed",
+        }),
       });
       await completeWorkflowRun(pool, workflowRunId, "failed", "schema_mismatch");
       return { outcome: "failed", reason: "schema_mismatch" };
     }
 
-    await ingestionRepo.upsertNormalizedClub(pool, {
+    const clubId = await ingestionRepo.upsertNormalizedClub(pool, {
       tag: validated.tag,
       name: validated.name,
       description: validated.description,
@@ -127,7 +161,14 @@ export async function runClubSync(clubTagRaw: string, triggeredBy: "manual" | "c
       fetchRunId,
     });
 
-    for (const member of validated.members) {
+    // Any normalized_players row that referenced this club before it was
+    // normalized (Phase 4.6/migration 0017) gets linked now, in one pass —
+    // not just the single player whose profile fetch may have triggered
+    // this club fetch.
+    const linkedPendingPlayers = await ingestionRepo.backfillPendingClubLinks(pool, validated.tag, clubId);
+
+    const membersToDiscover = validated.members.slice(0, MAX_CLUB_MEMBERS_TO_DISCOVER);
+    for (const member of membersToDiscover) {
       await ingestionRepo.recordObservedPlayer(pool, member.tag, "club_member", {
         clubTag: validated.tag,
         role: member.role,
@@ -142,7 +183,11 @@ export async function runClubSync(clubTagRaw: string, triggeredBy: "manual" | "c
       durationMs: 0,
     });
     await completeWorkflowRun(pool, workflowRunId, "succeeded");
-    return { outcome: "succeeded", membersDiscovered: validated.members.length };
+    return {
+      outcome: "succeeded",
+      membersDiscovered: membersToDiscover.length,
+      linkedPendingPlayers,
+    };
   } catch (error) {
     await completeWorkflowRun(pool, workflowRunId, "failed", error instanceof Error ? error.message : "unknown_error");
     throw error;

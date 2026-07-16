@@ -1,9 +1,11 @@
 /**
- * Configuration constants for Phase 3 ingestion. Deliberately conservative
+ * Configuration constants for Phase 3/4 ingestion. Deliberately conservative
  * defaults (Section 7.3/7.23/7.28's owner-decision placeholders) — none of
  * these are verified-optimal values, they are safe starting points meant
- * to be tuned once real usage is observed. See PHASE3.md.
+ * to be tuned once real usage is observed. See PHASE3.md/PHASE4.md.
  */
+
+import { CURATED_REGION_CODES } from "@/lib/ingestion/regions";
 
 export const DATA_SOURCE_NAME = "official-brawl-stars-api";
 
@@ -18,8 +20,16 @@ export const ENDPOINT_CATEGORY = {
   EVENTS_ROTATION: "events_rotation",
 } as const;
 
-/** Curated initial region set (Section 7.28 owner decision — "a curated initial subset" recommendation). */
-export const INITIAL_RANKING_REGIONS = ["global"];
+/**
+ * Curated initial region set (Section 7.28 owner decision — "a curated
+ * initial subset" recommendation). Phase 4.1: expanded from ["global"]
+ * alone to a small, justified multi-region set — see
+ * lib/ingestion/regions.ts for the reasoning behind each entry.
+ */
+export const INITIAL_RANKING_REGIONS: string[] = CURATED_REGION_CODES;
+
+/** Maximum regions any single ranking-seed-refresh request may process (also enforced server-side by the route, not just this default). */
+export const MAX_REGIONS_PER_REQUEST = 10;
 
 export const DEFAULT_CRAWL_BATCH_SIZE = 25;
 export const DEFAULT_LEASE_SECONDS = 120;

@@ -22,8 +22,14 @@ export async function POST(request: Request) {
 
   try {
     const result = await runClubSync(clubTag, "api");
-    const status = result.outcome === "succeeded" ? 200 : result.outcome === "invalid_tag" ? 400 : 502;
-    return NextResponse.json({ ok: result.outcome === "succeeded", ...result }, { status });
+    const status =
+      result.outcome === "succeeded" || result.outcome === "recently_fetched"
+        ? 200
+        : result.outcome === "invalid_tag"
+          ? 400
+          : 502;
+    const ok = result.outcome === "succeeded" || result.outcome === "recently_fetched";
+    return NextResponse.json({ ok, ...result }, { status });
   } catch (error) {
     logSafeError("club-expansion", "INTERNAL_ERROR", error);
     return NextResponse.json(errorBody("INTERNAL_ERROR", "Club expansion failed unexpectedly."), { status: 500 });

@@ -12,6 +12,8 @@ import { fetchRankingsFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validatePlayerRankingItems } from "@/lib/ingestion/schemas";
 import { classifyHttpStatus } from "@/lib/ingestion/retry";
 import { tryConsumeBudget } from "@/lib/ingestion/rateBudget";
+import { trophyBracketFor } from "@/lib/ingestion/trophyBracket";
+import { isValidCountryCodeShape, normalizeCountryCode } from "@/lib/ingestion/regions";
 import { ENDPOINT_CATEGORY, DATA_SOURCE_NAME, INITIAL_RANKING_REGIONS } from "@/lib/ingestion/config";
 import * as catalogRepo from "@/lib/catalog/repository";
 import * as ingestionRepo from "@/lib/ingestion/repository";
@@ -27,7 +29,7 @@ const WORKFLOW_SLUG = "ranking-seed-refresh";
 
 export interface RegionResult {
   region: string;
-  outcome: "success" | "failed" | "budget_exhausted";
+  outcome: "success" | "failed" | "budget_exhausted" | "invalid_country_code";
   entriesFetched: number;
   reason?: string;
 }
@@ -36,14 +38,6 @@ export interface RankingSeedSyncResult {
   outcome: "succeeded" | "succeeded_with_warnings" | "failed" | "lock_not_acquired" | "prerequisites_missing";
   workflowRunId?: string;
   regions: RegionResult[];
-}
-
-function trophyBracketFor(trophies: number | null): string | null {
-  if (trophies === null) return null;
-  if (trophies < 10_000) return "under_10k";
-  if (trophies < 30_000) return "10k_30k";
-  if (trophies < 50_000) return "30k_50k";
-  return "50k_plus";
 }
 
 export async function runRankingSeedSync(
@@ -79,7 +73,15 @@ export async function runRankingSeedSync(
   const results: RegionResult[] = [];
 
   try {
-    for (const region of regions) {
+    for (const regionRaw of regions) {
+      // Validated before spending any rate-limit budget or making a proxy
+      // call at all — a malformed region never reaches the network layer.
+      if (!isValidCountryCodeShape(regionRaw)) {
+        results.push({ region: regionRaw, outcome: "invalid_country_code", entriesFetched: 0 });
+        continue;
+      }
+      const region = normalizeCountryCode(regionRaw)!;
+
       const budget = await tryConsumeBudget(pool, "rankings", false);
       if (!budget.allowed) {
         results.push({ region, outcome: "budget_exhausted", entriesFetched: 0, reason: budget.reason });
