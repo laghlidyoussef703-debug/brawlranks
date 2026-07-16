@@ -583,6 +583,14 @@ export interface InsertBattleParams {
   durationSeconds: number | null;
   trophyChange: number | null;
   fetchRunId: string;
+  /**
+   * Phase 5.1: whichever internal patch (lib/patches/repository.ts) was
+   * active at normalization time — null if no patch has ever been inferred
+   * yet, or for any battle collected before patch tracking existed.
+   * Permanent, never backfilled later (BRAWLRANKS_WEBSITE_SPEC.md Section
+   * 7.4's "never silently guessed" rule).
+   */
+  patchId: string | null;
 }
 
 /**
@@ -600,8 +608,8 @@ export async function insertNormalizedBattle(
   await db.execute(
     `INSERT INTO normalized_battles
        (id, battle_key, game_mode_id, map_id, event_source_id, battle_type, structure,
-        occurred_at, duration_seconds, trophy_change, first_observed_fetch_run_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        occurred_at, duration_seconds, trophy_change, patch_id, first_observed_fetch_run_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       battle.battleKey,
@@ -613,6 +621,7 @@ export async function insertNormalizedBattle(
       battle.occurredAt,
       battle.durationSeconds,
       battle.trophyChange,
+      battle.patchId,
       battle.fetchRunId,
     ]
   );

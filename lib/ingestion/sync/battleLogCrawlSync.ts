@@ -33,6 +33,7 @@ import {
 } from "@/lib/ingestion/config";
 import * as catalogRepo from "@/lib/catalog/repository";
 import * as ingestionRepo from "@/lib/ingestion/repository";
+import * as patchesRepo from "@/lib/patches/repository";
 import {
   ensureWorkflowDefinition,
   acquireWorkflowLock,
@@ -57,7 +58,9 @@ async function processOneBattle(
   connection: PoolConnection,
   item: ValidatedBattleItem,
   crawledPlayerTag: string,
-  fetchRunId: string
+  fetchRunId: string,
+  /** Phase 5.1 — whichever internal patch was active when this batch run started; null if none has ever been inferred yet. */
+  activePatchId: string | null
 ): Promise<"inserted" | "deduplicated" | "quarantined"> {
   const battleKey = computeBattleKey({
     battleTimeRaw: item.battleTime,
@@ -135,6 +138,7 @@ async function processOneBattle(
       durationSeconds: item.duration,
       trophyChange: item.trophyChange,
       fetchRunId,
+      patchId: activePatchId,
     },
     item.results.map((r, index) => ({ teamIndex: index, result: r.result, rank: r.rank }))
   );
@@ -216,6 +220,13 @@ export async function runBattleLogCrawlBatch(
       await completeWorkflowRun(pool, workflowRunId, "succeeded");
       return { outcome: "no_due_players", workflowRunId, playersProcessed: 0, battlesIngested: 0, battlesDeduplicated: 0, battlesQuarantined: 0 };
     }
+
+    // Phase 5.1: resolve once per batch run, not per battle — every battle
+    // normalized in this run is stamped with whichever internal patch was
+    // active when the batch started. A patch inferred mid-run (from a
+    // concurrent catalog sync) is picked up by the next batch, never
+    // retroactively applied to battles already processed in this one.
+    const activePatchId = await patchesRepo.getActivePatchId(pool);
 
     for (const tag of dueTags) {
       const budget = await tryConsumeBudget(pool, "battle_log", false);
@@ -337,7 +348,7 @@ export async function runBattleLogCrawlBatch(
       try {
         await connection.beginTransaction();
         for (const item of valid) {
-          const outcome = await processOneBattle(connection, item, tag, fetchRunId);
+          const outcome = await processOneBattle(connection, item, tag, fetchRunId, activePatchId);
           if (outcome === "inserted") ingested += 1;
           else if (outcome === "deduplicated") deduplicated += 1;
           else quarantined += 1;

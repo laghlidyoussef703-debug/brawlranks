@@ -4,6 +4,7 @@ import { verifyInternalCronBearer } from "@/lib/auth";
 import { getPool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 import { runQueriesBounded, DB_QUERY_CONCURRENCY } from "@/lib/dbConcurrency";
+import { getActivePatch } from "@/lib/patches/repository";
 
 /**
  * Read-only, protected dataset-coverage/sufficiency report (Phase 4.9).
@@ -70,6 +71,10 @@ export interface DatasetCoverageReport {
   };
   deduplicationRate: number | null;
   clubCoverage: RowDataPacket | undefined;
+  /** Phase 5.1 — null until the first meaningful catalog change infers one; never a fabricated Supercell version (see lib/patches/patchInference.ts). */
+  currentPatch: { versionLabel: string; detectedAt: string } | null;
+  /** Battles with patch_id IS NULL — either collected before patch tracking existed, or collected while no patch had ever been inferred yet. Both are permanent, honest states, never backfilled. */
+  battlesWithoutPatchAssociation: number;
 }
 
 /**
@@ -213,6 +218,15 @@ export async function buildDatasetCoverageReport(pool: Pool): Promise<DatasetCov
 
   const totalObservations = await scalar(pool, "SELECT COUNT(*) AS count FROM battle_observations");
 
+  // Phase 5.1 — sequential, same pattern as the two queries above (a single
+  // indexed lookup and a single scalar count, not worth adding to the
+  // bounded burst).
+  const activePatch = await getActivePatch(pool);
+  const battlesWithoutPatchAssociation = await scalar(
+    pool,
+    "SELECT COUNT(*) AS count FROM normalized_battles WHERE patch_id IS NULL"
+  );
+
   return {
     ok: true,
     evaluatedAt: new Date().toISOString(),
@@ -245,6 +259,8 @@ export async function buildDatasetCoverageReport(pool: Pool): Promise<DatasetCov
     },
     deduplicationRate: totalObservations > 0 ? (totalObservations - totalBattles) / totalObservations : null,
     clubCoverage: clubCoverage[0][0],
+    currentPatch: activePatch ? { versionLabel: activePatch.versionLabel, detectedAt: activePatch.detectedAt.toISOString() } : null,
+    battlesWithoutPatchAssociation,
   };
 }
 

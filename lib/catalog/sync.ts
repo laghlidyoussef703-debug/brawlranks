@@ -31,6 +31,8 @@ import {
 } from "@/lib/catalog/changeDetection";
 import { generateSlug } from "@/lib/catalog/normalize";
 import * as repo from "@/lib/catalog/repository";
+import * as patchesRepo from "@/lib/patches/repository";
+import { logSafeError } from "@/lib/errors";
 import {
   ensureWorkflowDefinition,
   acquireWorkflowLock,
@@ -293,6 +295,29 @@ export async function runCatalogSync(
         });
       }
       changesDetectedCount = allChanges.length;
+
+      // Phase 5.1: infer an internal patch boundary from this run's own
+      // change-detection output (Section 7.7, scoped down per migration
+      // 0020's header — never a fabricated Supercell version). Deliberately
+      // wrapped in its own try/catch, separate from the surrounding
+      // transaction's error handling: a bug here must never roll back or
+      // fail an otherwise-successful catalog sync. A thrown error from a
+      // single INSERT/UPDATE statement leaves no partial row behind, so
+      // swallowing it here and continuing is safe — the rest of this
+      // transaction still commits normally.
+      try {
+        await patchesRepo.recordInferredPatchIfMeaningful(connection, {
+          changeCount: changesDetectedCount,
+          fetchRunId,
+          changeSummary: allChanges.map((c) => ({
+            entityType: c.entityType,
+            entityId: c.entityId,
+            changeType: c.changeType,
+          })),
+        });
+      } catch (patchError) {
+        logSafeError("catalog-sync", "PATCH_INFERENCE_FAILED", patchError);
+      }
 
       if (rejected.length > 0) {
         await repo.createIncident(connection, {
