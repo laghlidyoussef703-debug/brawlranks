@@ -43,6 +43,7 @@ export interface ModeAggregateRow {
   wins: number;
   losses: number;
   draws: number;
+  latestBattleAt: Date | null;
 }
 
 /**
@@ -50,6 +51,9 @@ export interface ModeAggregateRow {
  * the data. `battle_teams.result` is LEFT JOINed (a participant whose team
  * result was never resolved contributes to `matches` but to none of
  * wins/losses/draws — Section 7.4's "unknown" result handling).
+ * `latestBattleAt` (Section 7.8's "Data freshness" metric, migration 0023)
+ * is what Phase 5.3's ranking layer uses to derive this group's recency
+ * weight without re-scanning raw battles itself.
  */
 export async function computeModeAggregates(db: Queryable): Promise<ModeAggregateRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(
@@ -57,7 +61,8 @@ export async function computeModeAggregates(db: Queryable): Promise<ModeAggregat
             COUNT(*) AS matches,
             SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) AS wins,
             SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END) AS losses,
-            SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END) AS draws
+            SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END) AS draws,
+            MAX(nb.occurred_at) AS latestBattleAt
        FROM battle_participants bp
        JOIN normalized_battles nb ON nb.id = bp.battle_id
        LEFT JOIN battle_teams bt ON bt.id = bp.battle_team_id
@@ -72,6 +77,7 @@ export async function computeModeAggregates(db: Queryable): Promise<ModeAggregat
     wins: Number(r.wins),
     losses: Number(r.losses),
     draws: Number(r.draws),
+    latestBattleAt: r.latestBattleAt ?? null,
   }));
 }
 
@@ -83,6 +89,7 @@ export interface OverallAggregateRow {
   losses: number;
   draws: number;
   modeCoverageCount: number;
+  latestBattleAt: Date | null;
 }
 
 /** Per (brawler, patch) across every mode combined — Section 7.8/7.12's "overall" scope. */
@@ -93,7 +100,8 @@ export async function computeOverallAggregates(db: Queryable): Promise<OverallAg
             SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) AS wins,
             SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END) AS losses,
             SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END) AS draws,
-            COUNT(DISTINCT nb.game_mode_id) AS modeCoverageCount
+            COUNT(DISTINCT nb.game_mode_id) AS modeCoverageCount,
+            MAX(nb.occurred_at) AS latestBattleAt
        FROM battle_participants bp
        JOIN normalized_battles nb ON nb.id = bp.battle_id
        LEFT JOIN battle_teams bt ON bt.id = bp.battle_team_id
@@ -107,6 +115,7 @@ export async function computeOverallAggregates(db: Queryable): Promise<OverallAg
     losses: Number(r.losses),
     draws: Number(r.draws),
     modeCoverageCount: Number(r.modeCoverageCount),
+    latestBattleAt: r.latestBattleAt ?? null,
   }));
 }
 
@@ -118,6 +127,7 @@ export interface MatchupAggregateRow {
   matches: number;
   wins: number;
   losses: number;
+  latestBattleAt: Date | null;
 }
 
 /**
@@ -136,7 +146,8 @@ export async function computeMatchupAggregates(db: Queryable): Promise<MatchupAg
             nb.game_mode_id AS gameModeId, nb.patch_id AS patchId,
             COUNT(*) AS matches,
             SUM(CASE WHEN bt1.result = 'victory' THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN bt1.result = 'defeat' THEN 1 ELSE 0 END) AS losses
+            SUM(CASE WHEN bt1.result = 'defeat' THEN 1 ELSE 0 END) AS losses,
+            MAX(nb.occurred_at) AS latestBattleAt
        FROM battle_participants bp1
        JOIN battle_participants bp2
          ON bp2.battle_id = bp1.battle_id
@@ -156,14 +167,15 @@ export async function computeMatchupAggregates(db: Queryable): Promise<MatchupAg
     matches: Number(r.matches),
     wins: Number(r.wins),
     losses: Number(r.losses),
+    latestBattleAt: r.latestBattleAt ?? null,
   }));
 }
 
 export async function insertModeAggregate(db: Queryable, aggregationRunId: string, row: ModeAggregateRow): Promise<void> {
   await db.execute<ResultSetHeader>(
     `INSERT INTO brawler_mode_aggregates
-       (id, aggregation_run_id, brawler_id, game_mode_id, patch_id, matches, wins, losses, draws, win_rate)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, aggregation_run_id, brawler_id, game_mode_id, patch_id, matches, wins, losses, draws, win_rate, latest_battle_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       randomUUID(),
       aggregationRunId,
@@ -175,6 +187,7 @@ export async function insertModeAggregate(db: Queryable, aggregationRunId: strin
       row.losses,
       row.draws,
       computeWinRate(row.wins, row.losses),
+      row.latestBattleAt,
     ]
   );
 }
@@ -182,8 +195,8 @@ export async function insertModeAggregate(db: Queryable, aggregationRunId: strin
 export async function insertOverallAggregate(db: Queryable, aggregationRunId: string, row: OverallAggregateRow): Promise<void> {
   await db.execute<ResultSetHeader>(
     `INSERT INTO brawler_overall_aggregates
-       (id, aggregation_run_id, brawler_id, patch_id, matches, wins, losses, draws, win_rate, mode_coverage_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, aggregation_run_id, brawler_id, patch_id, matches, wins, losses, draws, win_rate, mode_coverage_count, latest_battle_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       randomUUID(),
       aggregationRunId,
@@ -195,6 +208,7 @@ export async function insertOverallAggregate(db: Queryable, aggregationRunId: st
       row.draws,
       computeWinRate(row.wins, row.losses),
       row.modeCoverageCount,
+      row.latestBattleAt,
     ]
   );
 }
@@ -202,8 +216,8 @@ export async function insertOverallAggregate(db: Queryable, aggregationRunId: st
 export async function insertMatchupAggregate(db: Queryable, aggregationRunId: string, row: MatchupAggregateRow): Promise<void> {
   await db.execute<ResultSetHeader>(
     `INSERT INTO matchup_aggregates
-       (id, aggregation_run_id, brawler_id, opponent_brawler_id, game_mode_id, patch_id, matches, win_rate)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, aggregation_run_id, brawler_id, opponent_brawler_id, game_mode_id, patch_id, matches, wins, losses, win_rate, latest_battle_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       randomUUID(),
       aggregationRunId,
@@ -212,7 +226,10 @@ export async function insertMatchupAggregate(db: Queryable, aggregationRunId: st
       row.gameModeId,
       row.patchId,
       row.matches,
+      row.wins,
+      row.losses,
       computeWinRate(row.wins, row.losses),
+      row.latestBattleAt,
     ]
   );
 }
