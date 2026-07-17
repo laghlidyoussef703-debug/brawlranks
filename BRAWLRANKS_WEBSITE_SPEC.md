@@ -44,7 +44,7 @@
     - 7.24 [Data-Quality Gates](#724-data-quality-gates)
     - 7.25 [Public Data Contract](#725-public-data-contract)
     - 7.26 [Fallback Behavior](#726-fallback-behavior)
-    - 7.27 [Methodology Page Mapping](#727-methodology-page-mapping)
+    - 7.27 [Public Disclosure Boundary](#727-public-disclosure-boundary)
     - 7.28 [Owner Decisions](#728-owner-decisions)
 8. [Change Detection](#8-change-detection)
 9. [Automatic Ranking Engine](#9-automatic-ranking-engine)
@@ -75,7 +75,7 @@
     - 17.17 [Compare Hub — `/compare`](#1717-compare-hub---compare)
     - 17.18 [Comparison Detail — `/compare/[a]-vs-[b]`](#1718-comparison-detail---compareavsb)
     - 17.19 [Search — `/search`](#1719-search---search)
-    - 17.20 [Methodology — `/methodology`](#1720-methodology---methodology)
+    - 17.20 [Removed Page Slot (CANCELLED)](#1720-removed-page-slot-cancelled)
     - 17.21 [About — `/about`](#1721-about---about)
     - 17.22 [Contact — `/contact`](#1722-contact---contact)
     - 17.23 [Editorial Policy — `/editorial-policy`](#1723-editorial-policy---editorial-policy)
@@ -196,7 +196,7 @@ Every route in Section 16 is built to serve one or more of these groups without 
 4. "Who beats me / who do I beat?" → counters and strong-against matchups calculated from matchup data with confidence thresholds, not hand-guessed.
 5. "What's good in this specific mode?" → per-mode tier lists calculated independently from the overall list.
 6. "What changed in the last patch?" → a patch-watcher workflow detects the patch, diffs the previous vs. new ranking snapshot, and generates the update page automatically.
-7. "Can I trust this ranking?" → every published number carries a visible confidence score, sample size, and calculation timestamp, plus a methodology page explaining the pipeline in plain language.
+7. "Can I trust this ranking?" → every published number carries a visible confidence score, sample size, and calculation timestamp, plus plain-language independence and trust statements on `/disclaimer` and `/about`.
 8. "I'm new — what should I even play?" → beginner-specific recommendation surface, computed from the same tagged recommendation logic.
 
 ---
@@ -218,7 +218,7 @@ Every route in Section 16 is built to serve one or more of these groups without 
 - Admin authentication + automation monitoring dashboard (status, runs, alerts, health)
 - Pause/resume, manual rerun, rollback, emergency override
 - Dynamic SEO metadata, sitemap, robots.txt, JSON-LD, all automation-refreshable per Section 32
-- Legal/trust pages (About, Methodology, Editorial Policy, Privacy, ToS, Disclaimer)
+- Legal/trust pages (About, Editorial Policy, Privacy, ToS, Disclaimer)
 
 **P1 (fast-follow):**
 - Updates/patch-notes hub with full historical diffing
@@ -507,7 +507,7 @@ This is where normalized battle data (layer B, Section 7.5) becomes the calculat
 | **Within-mode pick share** | Picks of the Brawler within one mode ÷ total picks within that mode | Directly answers "how often is this picked *for this mode*," which is what most best-brawlers-for-mode queries actually want | Not comparable across modes without normalization; requires mode-scoped denominators everywhere |
 | **Unique-player usage rate** | Distinct players who used the Brawler at least once in the window ÷ total distinct players in the sample | Resistant to single-player spam entirely; answers "how many players choose this," a genuinely different question from "how often does it appear" | Loses information about *how much* a player used it; requires distinct-player tracking per window, more expensive to compute |
 
-**This is an explicit owner decision (Section 7.28)** — the specification does not pick one silently. Whichever formula is selected, it is versioned (alongside the ranking-rule-set version, Section 9.8) and its exact definition is stated in plain language on `/methodology` (Section 7.27) so users know precisely what "pick rate" means on BrawlRanks. The **recommended default**, absent an owner override, is **slot-share pick rate with the per-player cap from Section 7.10 applied** — it is the simplest to compute and explain, and the player-level cap addresses its main weakness directly, while unique-player usage rate is flagged as a strong Phase-2 candidate once the aggregation pipeline is proven stable.
+**This is an explicit owner decision (Section 7.28)** — the specification does not pick one silently. Whichever formula is selected, it is versioned (alongside the ranking-rule-set version, Section 9.8) and its exact definition is stated in plain language on the site's trust pages (e.g., `/disclaimer`, `/about`) so users know precisely what "pick rate" means on BrawlRanks. The **recommended default**, absent an owner override, is **slot-share pick rate with the per-player cap from Section 7.10 applied** — it is the simplest to compute and explain, and the player-level cap addresses its main weakness directly, while unique-player usage rate is flagged as a strong Phase-2 candidate once the aggregation pipeline is proven stable.
 
 ### 7.10 Win-Rate Bias Correction
 
@@ -525,7 +525,7 @@ Raw win-rate and pick-rate figures computed naively from a battle sample are sub
 | New-Brawler release spikes | A brand-new Brawler's early win rate is often unrepresentative (novelty picks by very strong or very weak players, unfamiliarity from opponents) | Cold-start handling (Section 7.18) plus the post-balance-change confidence dampener pattern (Section 9.6), applied identically to new releases |
 | Overrepresented top players | A small number of extremely active/skilled players can dominate a Brawler's sample | Per-player cap on contribution to any single aggregation window (below) |
 | Repeated players in the sample | The same player crawled repeatedly contributes many correlated data points, not independent ones | Same per-player cap; also considered in sample-size floors, which count distinct qualifying contributions, not raw battle rows, where the chosen pick-rate definition is unique-player-based (Section 7.9) |
-| Survivorship bias | Players who stop playing (and thus stop being crawled) drop out of the sample, potentially skewing toward currently-engaged playstyles | Acknowledged as a structural property of any live-sampled dataset; not fully "solvable," but the retention/re-crawl policy (Section 7.3) ensures the *active* population is what's measured, which is arguably the more useful figure for a live meta anyway (documented as such on `/methodology`, not hidden) |
+| Survivorship bias | Players who stop playing (and thus stop being crawled) drop out of the sample, potentially skewing toward currently-engaged playstyles | Acknowledged as a structural property of any live-sampled dataset; not fully "solvable," but the retention/re-crawl policy (Section 7.3) ensures the *active* population is what's measured, which is arguably the more useful figure for a live meta anyway (documented as such on the site's trust pages, not hidden) |
 | Regional bias | Regional meta differences get flattened into one global figure if not stratified | Regional stratification (Section 7.8) plus the same weighting approach as trophy brackets |
 | Patch-transition noise | Data collected in the hours immediately after a patch mixes pre-patch and post-patch battles/behavior | Patch-scoped aggregation windows (Section 7.8) anchored to the patch's actual active-date boundary, plus the confidence dampener (Section 9.6) for the immediate post-patch period |
 
@@ -709,7 +709,7 @@ Confidence is calculated **separately** for each of the five data-generation con
 | **Low** | Barely clears the minimum publish threshold, or a significant input is stale/missing | Auto-publishes with a visible "early data"/"limited data" badge (Section 17); never promoted; a large volume of Low-confidence entries in one run can itself trigger the mass-movement/hold-for-review check (Section 14.2) |
 | **Insufficient data** | Below the minimum publish threshold entirely | **Does not publish** — the relevant section/entity is omitted or shown in its explicit empty state (Section 17's per-page empty-state rules), never fabricated to fill the gap |
 
-This table is the single source of truth for "what does a confidence badge mean" referenced throughout Section 17 and is restated in plain language on `/methodology` (Section 7.27).
+This table is the single source of truth for "what does a confidence badge mean" referenced throughout Section 17 and is restated in plain language on the site's trust pages.
 
 ### 7.18 Cold-Start Strategy
 
@@ -751,7 +751,7 @@ No external statistical source is used — scraped, API-integrated, or otherwise
 | Update frequency | How often the source itself refreshes, which bounds how fresh BrawlRanks' derived figures can be |
 | Rate limit | The source's own request limits, feeding the same rate-limit-budget model as the official API (Section 7.23) |
 | Schema contract | A documented expected response shape, validated the same way as the official API (Section 7.24) |
-| Attribution requirement | Whether the source's terms require public credit, and if so, where that credit is displayed (Section 7.27/`/methodology`) |
+| Attribution requirement | Whether the source's terms require public credit, and if so, where that credit is displayed (Section 7.27) |
 | Fallback | What BrawlRanks does if the source becomes unavailable (Section 7.26) |
 | Revocation plan | How quickly BrawlRanks can fully disable and remove dependency on the source if its terms change or access is revoked |
 
@@ -940,11 +940,11 @@ Consolidating and extending Section 29's failure-handling table with the data-ar
 
 **The governing rule across every row above:** BrawlRanks always keeps serving the previous valid published snapshot rather than publishing partial or corrupt data. A stale-data notice is only shown to users once freshness crosses a configured threshold (Section 7.17's freshness input, surfaced via the `LastUpdated`/`PartialDataWarning` components, Section 17.31) — the site does not stay silent about staleness once it becomes material, but it also never manufactures false freshness or false certainty to hide a collection problem.
 
-### 7.27 Methodology Page Mapping
+### 7.27 Public Disclosure Boundary
 
-`/methodology` (Section 17.20) is where this entire section becomes user-facing. The mapping from internal data architecture to public explanation:
+**Internal reference only — there is no public methodology/pipeline page.** Backend, pipeline, infrastructure, operational, deduplication, publication, ranking-guard, and other implementation details are never publicly exposed. The independence and non-affiliation statements live on `/disclaimer` and `/about`. The table below is retained purely as internal guidance for how a given internal concept *could* be described in plain language, should any short trust copy ever be written for `/disclaimer` or `/about` — it is not a page spec, and nothing here is a commitment to publish.
 
-| Internal concept (this section) | Public explanation on `/methodology` |
+| Internal concept (this section) | Plain-language description (internal reference only — surfaced, if ever, only on `/disclaimer` or `/about`) |
 |---|---|
 | Official API usage (7.1) | "We use Supercell's official Brawl Stars API for Brawler data and player battle activity" — stated plainly, without exposing endpoint names, internal field mappings, or infrastructure detail |
 | Player sample (7.3) | "We track a large, ongoing sample of players across regions and skill levels" — general description of the sampling philosophy, not the exact seed-source list or current sample size (which would be exploitable/gameable if published precisely) |
@@ -959,7 +959,7 @@ Consolidating and extending Section 29's failure-handling table with the data-ar
 | AI's role (7.16/12) | That explanations are AI-written but strictly grounded in the calculated data shown alongside them, and never the source of a number |
 | Update frequency (7.22) | Realistic, current cadence expectations — kept honest and specific rather than vaguely "frequently" |
 
-**What is never exposed on `/methodology` or anywhere else public-facing:** API credentials or proxy infrastructure details; exact rate-limit numbers or request budgets (Section 7.23); the precise current sample size or seed-player list (gameable/scrapeable if exposed); exact ranking-rule weight values (configuration detail, not a user-facing fact); anything that would help a bad actor game the ranking system or abuse the ingestion pipeline. The public explanation is honest and specific about *methodology*, not a leak of *implementation*.
+**What is never exposed publicly:** API credentials or proxy infrastructure details; exact rate-limit numbers or request budgets (Section 7.23); the precise current sample size or seed-player list (gameable/scrapeable if exposed); exact ranking-rule weight values (configuration detail, not a user-facing fact); anything that would help a bad actor game the ranking system or abuse the ingestion pipeline.
 
 ### 7.28 Owner Decisions
 
@@ -1070,7 +1070,7 @@ Confidence is surfaced to users subtly (e.g., an "early data" or "high-confidenc
 
 ### 9.6 New-Brawler cold start and post-balance-change handling
 
-- **Cold start:** a `new_brawler` event (Section 8.1) means there is little/no performance data yet. The engine assigns an initial score derived from rarity/class baseline configuration plus official stat comparison to similar existing Brawlers, flags `confidence = low`, and surfaces an "early ranking, subject to change" indicator on the public page (consistent with the methodology commitment in Section 31.9). This never blocks the Brawler page from publishing (a Brawler page can exist with a clearly-labeled low-confidence ranking) but does affect whether it's eligible for prominent placement (e.g., homepage "top Brawlers" — low-confidence entries are excluded from promotional placement even if numerically high-scoring).
+- **Cold start:** a `new_brawler` event (Section 8.1) means there is little/no performance data yet. The engine assigns an initial score derived from rarity/class baseline configuration plus official stat comparison to similar existing Brawlers, flags `confidence = low`, and surfaces an "early ranking, subject to change" indicator on the public page (consistent with the trust commitment in Section 31.9). This never blocks the Brawler page from publishing (a Brawler page can exist with a clearly-labeled low-confidence ranking) but does affect whether it's eligible for prominent placement (e.g., homepage "top Brawlers" — low-confidence entries are excluded from promotional placement even if numerically high-scoring).
 - **Post-balance-change:** immediately after a `stat_change`/`gadget_change`/etc. tied to the current patch, the engine applies a temporary confidence dampener for a configurable window (e.g., until enough post-change sample size accumulates), preventing an over-confident snap judgment on day one of a balance change.
 
 ### 9.7 Missing-data handling
@@ -1303,7 +1303,6 @@ The route structure, rendering strategy, and per-route reasoning from the origin
 | `/updates/[slug]` | Detail | SSG (immutable once generated) | P1 | Yes |
 | `/about` | Static | SSG | P0 | Yes |
 | `/contact` | Static | SSG | P0 | Yes |
-| `/methodology` | Static | SSG (revalidate on manual edit — describes the pipeline itself) | P0 | Yes |
 | `/editorial-policy` | Static | SSG | P0 | Yes |
 | `/privacy-policy` | Static | SSG | P0 | Yes |
 | `/terms-of-service` | Static | SSG | P0 | Yes |
@@ -1356,7 +1355,6 @@ These rules apply to **every** public page and are not repeated in full inside e
 - Visible current patch version.
 - Visible last-updated date (and, where relevant, "last reviewed" for human-touched content).
 - Visible data confidence indicator on any calculated ranking/build/matchup with variable evidence quality (Section 9.4/10.3/11.2).
-- Visible `/methodology` link on every ranking-bearing page (`/tier-list`, `/meta`, `/best-brawlers`, `/brawlers/[slug]`, `/game-modes/[slug]`, `/counters`).
 - No unsupported claims: every AI-generated numeric claim traces to a grounding fact (Section 12.2); pages never state a number that isn't backed by a stored calculation.
 
 **Shared UI conventions**
@@ -1381,7 +1379,7 @@ These rules apply to **every** public page and are not repeated in full inside e
 
 **Footer** (present on every public page):
 - SEO hub links: Tier List, Meta, Best Brawlers, Brawlers, Game Modes, Guides, Updates, Counters, Builds, Compare.
-- Trust/legal links: About, Methodology, Editorial Policy, Contact, Privacy Policy, Terms of Service, Disclaimer.
+- Trust/legal links: About, Editorial Policy, Contact, Privacy Policy, Terms of Service, Disclaimer.
 - Contact email: `support@brawlranks.com`.
 - Unofficial fan-site disclaimer (short form — full text lives on `/disclaimer`): *"BrawlRanks is an independent fan site and is not affiliated with or endorsed by Supercell."*
 - Copyright line: `© {current year} BrawlRanks. Brawl Stars is a trademark of Supercell.`
@@ -1452,7 +1450,7 @@ These rules apply to **every** public page and are not repeated in full inside e
 11. Best Brawlers to upgrade
 12. Latest patch impact
 13. Latest guides
-14. Methodology / trust block
+14. Trust block
 15. FAQ
 16. Footer (17.2)
 
@@ -1472,8 +1470,8 @@ These rules apply to **every** public page and are not repeated in full inside e
 | 11 | Best Brawlers to upgrade | Serve upgrade-planner intent | 3–4 curated cards with 1-line reason | `recommendation_tag = upgrade_priority` subset | `BrawlerCard` (compact) | Horizontal scroll-snap | `/best-brawlers` | Targets upgrade-intent long-tail | `homepage_upgrade_click` | Same as above | Ranking rebuild publish |
 | 12 | Latest patch impact | Answer "what changed" directly | Patch version, 1–2 sentence AI-generated summary, link | Latest confirmed `patches` + grounded delta summary | `UpdateCard` (featured) | Full-width card | `/updates/[slug]` | Targets "brawl stars new update" cluster | `update_view` (source=`homepage`) | Section omitted until the first `/updates/[slug]` page exists | New-patch publish |
 | 13 | Latest guides | Depth + freshness | 3 latest published guides | `guides` latest 3 published | `GuideCard` | Stacked cards | `/guides/[slug]` | Discovery of long-form content | `guide_view` (source=`homepage`) | Section omitted if fewer than 3 guides published (never pads with placeholders) | Guide editorial publish |
-| 14 | Methodology / trust block | E-E-A-T signal on the highest-traffic page | 1–2 sentence pipeline summary + link | Static copy + link | `MethodologyLink` (expanded variant) | Full-width band | `/methodology` | Trust signal | `methodology_click` (source=`homepage`) | N/A | Static |
-| 15 | FAQ | Capture featured-snippet opportunities | 3–5 Q&A pairs (what is BrawlRanks, how often updated, is this official, etc.) | Curated `faqs` tagged `homepage` | `FAQAccordion` | Stacked accordion | Some entries link out (e.g., to `/methodology`) | `FAQPage` schema eligibility | `faq_expand` | N/A (static minimum set) | Rare manual edit |
+| 14 | Trust block | E-E-A-T signal on the highest-traffic page | 1–2 sentence pipeline summary + link | Static copy + link | Inline trust link | Full-width band | `/disclaimer` | Trust signal | `trust_link_click` (source=`homepage`) | N/A | Static |
+| 15 | FAQ | Capture featured-snippet opportunities | 3–5 Q&A pairs (what is BrawlRanks, how often updated, is this official, etc.) | Curated `faqs` tagged `homepage` | `FAQAccordion` | Stacked accordion | Some entries link out (e.g., to `/disclaimer`) | `FAQPage` schema eligibility | `faq_expand` | N/A (static minimum set) | Rare manual edit |
 
 **Interactions / filters / URL state:** No filters on the homepage. Carousels (sections 5, 8, 9) are swipe/scroll on mobile, arrow-button-navigable on desktop, with no URL-state persistence — this is a browsing surface, not a shareable filtered view.
 
@@ -1498,9 +1496,9 @@ These rules apply to **every** public page and are not repeated in full inside e
 - **OG title/description:** same as meta title/description; **OG image:** a generated/static BrawlRanks brand image (not per-patch dynamic at MVP — Phase 2 candidate).
 - **Twitter card:** `summary_large_image`, same title/description/image as OG.
 - **Structured data:** `WebSite` (with `SearchAction` once `/search` ships), `Organization`, `FAQPage` (section 15).
-- **Internal-link targets:** `/tier-list`, `/meta`, `/best-brawlers`, `/brawlers`, `/game-modes/[slug]` ×3, `/guides/[slug]` ×3, `/updates/[slug]`, `/methodology`.
+- **Internal-link targets:** `/tier-list`, `/meta`, `/best-brawlers`, `/brawlers`, `/game-modes/[slug]` ×3, `/guides/[slug]` ×3, `/updates/[slug]`.
 
-**Trust/freshness signals:** patch badge, last-updated row, methodology block. **Performance:** hero and patch row must be part of the initial server-rendered payload (no client fetch for above-the-fold content); carousels lazy-load images below the first 2–3 visible cards.
+**Trust/freshness signals:** patch badge, last-updated row, trust block. **Performance:** hero and patch row must be part of the initial server-rendered payload (no client fetch for above-the-fold content); carousels lazy-load images below the first 2–3 visible cards.
 
 **Acceptance checklist:**
 - [ ] Renders from the current published overall snapshot, never a stale hardcoded list
@@ -1541,7 +1539,7 @@ These rules apply to **every** public page and are not repeated in full inside e
 - H1: `Brawl Stars Tier List — Patch {version}`
 - Current patch badge, last-updated date, overall confidence indicator (aggregate — e.g., "High confidence" if the median entry confidence clears a threshold, "Early data" banner if a large share of entries are still cold-start)
 - One-sentence AI-generated summary of the current tier-list state (grounded in the same deltas `/meta` uses, capped at one sentence here — `/meta` is where the full narrative lives)
-- Methodology link (`MethodologyLink` component, compact variant) — `"See how tiers are calculated →"` → `/methodology`
+- Disclaimer trust link — `"Read our disclaimer →"` → `/disclaimer`
 - Share button (native share / copy-link)
 
 **Tier controls (sticky on scroll, mobile: collapses into a "Filters" sheet trigger):**
@@ -1558,7 +1556,7 @@ These rules apply to **every** public page and are not repeated in full inside e
 
 **Additional sections (below the tier groups, in order):**
 1. Biggest movers this patch (risers/fallers, same data as homepage section 7 but the complete list, not a 3-item preview)
-2. How tiers are calculated (expanded methodology excerpt — signals used, confidence explanation, link to full `/methodology`)
+2. Disclaimer trust link (link to full `/disclaimer`)
 3. Patch impact (short, links to `/updates/[slug]` for full detail — this section must not duplicate `/updates/[slug]`'s content, only summarize and link)
 4. FAQ (5–8 Q&A: "How often is this updated," "What does S tier mean," "Why did X move tiers," "Is this the same for ranked," etc.)
 5. Related mode pages (grid linking to all `/game-modes/[slug]`)
@@ -1592,11 +1590,11 @@ Tier bands are never rendered as a single giant table on any breakpoint — the 
 - **H1:** `Brawl Stars Tier List — Patch {version}`
 - **H2 structure:** `Top Brawlers Right Now` (implicit via tier bands, each band itself is not a separate H2 — the five tier bands share one H2 `The Full Tier List`), `Biggest Movers This Patch`, `How Tiers Are Calculated`, `Patch {version} Impact`, `Frequently Asked Questions`, `Related Game Modes`.
 - **Structured data:** `ItemList` (the ranked Brawler list), `BreadcrumbList`, `FAQPage` (FAQ section).
-- **Internal-link targets:** every referenced `/brawlers/[slug]`, `/methodology`, `/updates/[slug]` (current patch), `/game-modes` hub + individual mode pages, 2–3 `/guides/[slug]`.
+- **Internal-link targets:** every referenced `/brawlers/[slug]`, `/updates/[slug]` (current patch), `/game-modes` hub + individual mode pages, 2–3 `/guides/[slug]`.
 
-**Analytics events:** `tier_list_view` (page load), `tier_filter_change` (params: filter type/value), `tier_sort_change` (params: sort key), `brawler_view` (source=`tier_list`), `share_tier_list`, `methodology_click` (source=`tier_list`).
+**Analytics events:** `tier_list_view` (page load), `tier_filter_change` (params: filter type/value), `tier_sort_change` (params: sort key), `brawler_view` (source=`tier_list`), `share_tier_list`, `trust_link_click` (source=`tier_list`).
 
-**Trust/freshness signals:** patch badge, last-updated date, per-entry confidence badges, methodology link — all required, none optional on this page.
+**Trust/freshness signals:** patch badge, last-updated date, per-entry confidence badges, disclaimer link — all required, none optional on this page.
 
 **Performance:** the full tier-list dataset is part of the initial server-rendered payload (no client fetch to populate tiers); filtering/sorting operates on already-delivered data client-side; Brawler portrait images use `next/image` with explicit dimensions to avoid layout shift when cards re-flow on filter change.
 
@@ -1653,7 +1651,7 @@ Tier bands are never rendered as a single giant table on any breakpoint — the 
 11. Counter trends (notable shifting matchups, links to `/counters`)
 12. Comparison with previous snapshot (a compact before/after framing — "last patch vs. this patch")
 13. What players should do now (actionable, grounded takeaway — the page's practical payoff)
-14. Methodology (compact excerpt + link)
+14. Trust note (link to `/disclaimer`)
 15. FAQ
 16. Related pages (Tier List, Best Brawlers, current Updates entry, top mode pages)
 
@@ -1669,7 +1667,7 @@ Tier bands are never rendered as a single giant table on any breakpoint — the 
 - **Structured data:** `Article`, `BreadcrumbList`.
 - **Internal-link targets:** `/tier-list`, `/updates/[slug]` (current), `/game-modes/[slug]` (top modes), `/brawlers/[slug]` (movers), `/counters`, `/best-brawlers`.
 
-**Analytics events:** `meta_view`, `brawler_view` (source=`meta`), `methodology_click` (source=`meta`), `share_click` (source=`meta`).
+**Analytics events:** `meta_view`, `brawler_view` (source=`meta`), `trust_link_click` (source=`meta`), `share_click` (source=`meta`).
 
 **Trust/freshness signals:** patch badge, last-updated date, explicit "AI-generated analysis grounded in calculated data" note near the top (transparency, per Section 31.9).
 
@@ -1852,7 +1850,7 @@ This is the single most important page template on the site and receives the ful
 24. Related Brawlers
 25. Related game modes
 26. Related guides
-27. Author/reviewer/methodology (transparency block — see below)
+27. Author/reviewer/transparency block
 28. Footer
 
 **Section-by-section detail:**
@@ -1884,7 +1882,7 @@ This is the single most important page template on the site and receives the ful
 | 24 | Related Brawlers | Same class/role or common pairings | `BrawlerCard` (compact) ×3–5 | — | — | — | — | Horizontal scroll |
 | 25 | Related game modes | Top 2–3 modes this Brawler ranks well in | `ModeCard` (compact) ×2–3 | — | — | — | — | Horizontal scroll |
 | 26 | Related guides | Guides referencing this Brawler via `guide_brawlers` | `GuideCard` (compact) ×2–3 | — | — | Omitted if none exist | — | Stacked or horizontal |
-| 27 | Author/reviewer/methodology | Transparency statement | `AuthorByline` (system variant) + `MethodologyLink` | States whether this page's content is "Generated + passed quality gates" (default) or "Includes a human-reviewed correction" (Section 28) | — | N/A | — | Compact footer-style block |
+| 27 | Author/reviewer/transparency | Transparency statement | `AuthorByline` (system variant) | States whether this page's content is "Generated + passed quality gates" (default) or "Includes a human-reviewed correction" (Section 28) | — | N/A | — | Compact footer-style block |
 
 **Intent coverage on this one URL:** `{brawler} build`, `best build for {brawler}` → section 7; `{brawler} best gears` → section 11; `{brawler} best star power` → section 10; `{brawler} best gadget` → section 9; `{brawler} counters` → section 13; `who counters {brawler}` → section 13 (phrased as the inverse framing within the same section); `how to play {brawler}` → section 17; `is {brawler} good` → sections 3 + 5; `should I upgrade {brawler}` → section 20.
 
@@ -1911,9 +1909,9 @@ This is the single most important page template on the site and receives the ful
 
 **Accessibility:** one H1; H2s in document order matching the section list; tier/confidence badges carry text labels; matchup cards have accessible names ("Counters: {Opponent Name}, {win rate}% win rate"); sticky mobile CTA doesn't obscure focused form/interactive elements.
 
-**Analytics events:** `brawler_view`, `build_expand` (which build card), `counter_view`, `faq_expand`, `share_click` (source=`brawler_detail`), `methodology_click` (source=`brawler_detail`).
+**Analytics events:** `brawler_view`, `build_expand` (which build card), `counter_view`, `faq_expand`, `share_click` (source=`brawler_detail`), `trust_link_click` (source=`brawler_detail`).
 
-**Trust/freshness signals:** patch badge, last-updated date, confidence badges throughout, author/reviewer transparency block (section 27) — the strongest trust surface on the site alongside `/methodology`.
+**Trust/freshness signals:** patch badge, last-updated date, confidence badges throughout, author/reviewer transparency block (section 27) — a key trust surface on the site alongside `/disclaimer` and `/about`.
 
 **Performance:** portrait and item icons use `next/image` with explicit dimensions; below-the-fold sections (20+) lazy-load images only, never lazy-load the text content itself (which is server-rendered and crawlable regardless of viewport).
 
@@ -2006,7 +2004,7 @@ This is the single most important page template on the site and receives the ful
 18. FAQs (targeting the "best brawlers for X" / "X tier list" / "X meta" phrasing variants directly in the Q&A text)
 19. Related Brawlers (top performers, linked)
 20. Related guides
-21. Methodology (compact excerpt + link)
+21. Trust note (link to `/disclaimer`)
 
 **Filters:** a lightweight rarity/class filter over section 5's tier groups, same client-side/non-indexed pattern as `/tier-list` (17.4) — no separate filtered URLs.
 
@@ -2231,39 +2229,9 @@ This is the single most important page template on the site and receives the ful
 
 ---
 
-### 17.20 Methodology — `/methodology`
+### 17.20 Removed Page Slot (CANCELLED)
 
-**Overview:** Route `/methodology`; rendering SSG (revalidate on manual edit — this page describes the pipeline itself, so it changes only when the pipeline's real behavior changes, never on a schedule); indexable; canonical self; breadcrumb `Home > Methodology`. This is a major trust page, linked from every ranking-bearing page (Section 17.1). **The content requirements below are restated at the data-mechanics level of detail in [Section 7.27](#727-methodology-page-mapping), which is authoritative on exactly what internal concept maps to which public explanation, and what must never be exposed (credentials, exact sample size, rate-limit numbers, exact rule weights).**
-
-**Required sections, written for a normal player, not only engineers:**
-1. What BrawlRanks measures (plain-language framing: "we track how strong every Brawler is, patch by patch, using real data plus configured rules")
-2. Data sources (which sources feed the pipeline, in plain terms — official game data, statistical data where available, editorial configuration as a fallback; no overstatement of sources not actually in use, kept in sync with Section 7)
-3. Source reliability (how conflicting source data is resolved, in plain terms)
-4. Overall ranking formula (explained conceptually — signals considered, not necessarily exact weight numbers, which are configuration detail; links to the underlying logic without requiring the reader to understand database schema)
-5. Per-mode ranking formula (why a Brawler can be a different tier in different modes)
-6. Confidence score (what "high confidence" / "early data" badges mean and why they exist)
-7. Sample size (why some rankings note "not enough data yet")
-8. Data freshness (how "last updated" is determined, and the no-fake-freshness commitment)
-9. Patch impact (how a new patch triggers recalculation)
-10. Build recommendation logic (plain-language version of Section 10)
-11. Counter logic (plain-language version of Section 11)
-12. AI explanation rules (that ranking reasons/summaries are AI-written but strictly grounded in the calculated data above them — with an explicit statement that AI never decides a number, only explains one, per Section 12.3)
-13. Quality gates (that a bad or incomplete data run is caught and blocked before publishing, per Section 13)
-14. Auto-publish rules (that most updates happen automatically, but suspicious changes are held for human review, per Section 14)
-15. Human override policy (that BrawlRanks staff can occasionally step in for a correction, and that this is always disclosed, per Section 28)
-16. Update frequency (realistic cadence expectations per Section 15, in plain terms — "checked hourly for patches, rankings recalculated when there's enough new data")
-17. Corrections (how to report an error — links to `/contact`)
-18. Limitations (honest statement of what the system can't yet do — e.g., no official statistical API confirmed, per Section 47 — without over-promising)
-19. Changelog (dated log of material methodology changes — e.g., "changed tier-threshold model from percentile to fixed bands on {date}")
-
-**SEO output:** Title: `Our Methodology — How BrawlRanks Calculates Rankings`. H1: `How BrawlRanks Works`. Structured data: `Article`, `BreadcrumbList`.
-
-**Acceptance checklist:**
-- [ ] Understandable to a non-technical player, not just engineers
-- [ ] Never overstates data sources not actually in use
-- [ ] Linked from every ranking-bearing page
-- [ ] Changelog reflects real methodology changes only
-- [ ] No temporary Hostinger domain referenced anywhere
+> **CANCELLED — no public page exists at this slot.** A public methodology/pipeline page (`/methodology`) was previously planned here and has been removed from scope entirely. Backend, pipeline, infrastructure, operational, deduplication, publication, ranking-guard, and other implementation details are never publicly exposed. There is no route, navigation entry, footer link, internal link, structured-data entry, sitemap entry, or test associated with this slot. The independence and non-affiliation statements remain on `/disclaimer` and `/about`; the internal-only concept reference is [Section 7.27](#727-public-disclosure-boundary).
 
 ---
 
@@ -2271,13 +2239,13 @@ This is the single most important page template on the site and receives the ful
 
 **Overview:** Route `/about`; SSG; indexable; canonical self; breadcrumb `Home > About`.
 
-**Required content:** what BrawlRanks is (one paragraph); why it exists (useful-tool-first vision — Section 1); automation and data transparency (short version of the methodology pitch, linking to `/methodology`); unofficial fan-site status (short version, linking to `/disclaimer` for full legal text); team/author information if available (reserved slot — populated once real bylines exist, not fabricated); link to Methodology; link to Editorial Policy; contact CTA linking to `/contact`.
+**Required content:** what BrawlRanks is (one paragraph); why it exists (useful-tool-first vision — Section 1); automation and data transparency (short summary of the data pipeline); unofficial fan-site status (short version, linking to `/disclaimer` for full legal text); team/author information if available (reserved slot — populated once real bylines exist, not fabricated); link to Editorial Policy; contact CTA linking to `/contact`.
 
 **SEO output:** Title: `About BrawlRanks`. H1: `About BrawlRanks`. Structured data: `Organization`, `Person` (team, only if named individuals are actually disclosed).
 
 **Acceptance checklist:**
 - [ ] No fabricated team bios
-- [ ] Links to Methodology, Editorial Policy, Contact all present
+- [ ] Links to Editorial Policy, Contact all present
 - [ ] No temporary Hostinger domain referenced anywhere
 
 ---
@@ -2412,7 +2380,7 @@ The authoritative per-route table of what data each public page reads, what trig
 | `/compare` | Curated-pair allowlist + popular-comparison config | Config change (rare) | Previous render | N/A (static config) | Rare | Index (hub) |
 | `/compare/[a]-vs-[b]` | Both Brawlers' current snapshots | Either Brawler's publish event | Previous comparison render | Full gate (inherits both Brawlers' completeness) | Event-driven | Index (curated pairs only) |
 | `/search` | Live query against current published entities | N/A (request-time) | N/A | N/A | Real-time | Noindex |
-| `/about`, `/methodology`, `/editorial-policy`, `/disclaimer`, `/privacy-policy`, `/terms-of-service`, `/contact` | Static content | Manual edit | Previous version | Manual review | Rare | Index |
+| `/about`, `/editorial-policy`, `/disclaimer`, `/privacy-policy`, `/terms-of-service`, `/contact` | Static content | Manual edit | Previous version | Manual review | Rare | Index |
 | `404` / error pages | N/A | N/A | N/A | N/A | N/A | Noindex |
 
 ---
@@ -2429,11 +2397,11 @@ Homepage (/)
   → /best-brawlers (beginner/upgrade sections)
   → /guides/[slug] ×3 (latest guides)
   → /updates/[slug] (latest patch impact)
-  → /methodology (trust block)
+  → /disclaimer (trust block)
 
 /tier-list
   → /brawlers/[slug] ×ALL (every tier entry)
-  → /methodology (methodology block)
+
   → /updates/[slug] (current patch)
   → /game-modes ×ALL (related mode pages section)
   → /guides/[slug] ×2–3 (related guides)
@@ -2451,7 +2419,7 @@ Homepage (/)
   → /updates/[slug] (patch impact)
   → /guides/[slug] ×2–3 (related guides)
   → /brawlers/[slug] ×3–5 (related Brawlers)
-  → /methodology
+
 
 /game-modes/[slug]
   → /brawlers/[slug] ×ALL mode-tier entries
@@ -2516,7 +2484,7 @@ Reusable components referenced throughout 17.3–17.28. Every page must be built
 | `SortSelect` | Sort-order control | Options, current value | `/tier-list`, `/brawlers`, `/game-modes/[slug]` | Native select on mobile for OS-native UX | Labeled control |
 | `MobileFilterSheet` | Bottom-sheet filter panel | Wrapped `FilterBar` content | Any page with `FilterBar` on mobile | Full-height slide-up sheet | Focus trap while open, returns focus on close |
 | `ShareButton` | Native share / copy-link | Share URL, title | `/tier-list`, `/brawlers/[slug]`, `/game-modes/[slug]`, `/meta`, `/guides/[slug]`, `/updates/[slug]`, `/compare/[a]-vs-[b]` | Uses Web Share API where available, falls back to copy-to-clipboard + toast | Button has accessible name "Share this page" |
-| `MethodologyLink` | Link/teaser to `/methodology` (compact and expanded variants) | — | Every ranking-bearing page | Inline or banded | Descriptive link text, never "click here" |
+
 | `RelatedContent` | Generic related-items module | Item list, item type | Every entity detail page | Horizontal scroll or stacked grid | Section landmark with heading |
 | `FAQAccordion` | Expandable Q&A list | Question/answer pairs | Any page with FAQ content | Full-width stacked | `aria-expanded`, `aria-controls`, keyboard togglable |
 | `AuthorByline` | Author credit (human or system) | Name/identity, avatar, role | `/guides/[slug]`, `/brawlers/[slug]` footer transparency block | Compact inline row | Text name always present, not avatar-only |
@@ -2588,7 +2556,7 @@ Consolidated cross-page reference — each page's own subsection (17.3–17.28) 
 | `/compare` | `Compare Brawl Stars Brawlers` | `Compare Brawlers` | Self | `BreadcrumbList` | Index (hub) |
 | `/compare/[a]-vs-[b]` | `{A} vs {B} — Which Is Better in Brawl Stars?` | `{A} vs {B}` | Canonical-ordered pair; reversed order 308s | `BreadcrumbList` | Index (curated only) |
 | `/search` | `Search — BrawlRanks` | `Search` | Self (irrelevant) | None | Noindex |
-| `/methodology` | `Our Methodology — How BrawlRanks Calculates Rankings` | `How BrawlRanks Works` | Self | `Article`, `BreadcrumbList` | Index |
+
 | `/about` | `About BrawlRanks` | `About BrawlRanks` | Self | `Organization` | Index |
 | `/contact` | `Contact BrawlRanks` | `Contact Us` | Self | `BreadcrumbList` | Index |
 | `/editorial-policy` | `Editorial Policy \| BrawlRanks` | `Editorial Policy` | Self | `Article`, `BreadcrumbList` | Index |
@@ -2620,7 +2588,7 @@ Every canonical/OG/sitemap URL is built from the `https://brawlranks.com` consta
 | `compare_submit` | `/compare` form submitted | brawler_a, brawler_b, curated (bool) | None |
 | `internal_search` | A query is submitted via `/search` or the header overlay | query text, result count | Query text is not linked to any user-identifying field; not used for anything beyond aggregate content-gap analysis |
 | `share_click` | `ShareButton` used | source page/type | None |
-| `methodology_click` | A `MethodologyLink` is clicked | source page | None |
+| `trust_link_click` | A trust-page link is clicked | source page | None |
 | `contact_submit` | `/contact` form submitted successfully | category only | Message body and email are never sent to analytics, only to the support inbox |
 | `faq_expand` | An `FAQAccordion` item is expanded | source page, question id | None |
 | `directory_filter_change` | Filter changed on `/brawlers` | filter type/value | None |
@@ -3326,9 +3294,9 @@ The SEO architecture from the original specification — hub-and-spoke topic clu
 
 Key unchanged points, restated briefly for continuity: production canonical domain is `https://brawlranks.com`; every canonical/sitemap/structured-data URL is sourced from one environment constant; temporary Hostinger domains are never indexable; `/tier-list` mode filters canonical to `/game-modes/[slug]`; directory pages (`/brawlers`) don't paginate a finite roster; `/compare` pairs are curated, never combinatorial; freshness timestamps only move on real, threshold-crossing change (now enforced *more* strictly than before, since Section 8.2's no-change-no-publish rule makes fake freshness structurally impossible rather than merely a policy).
 
-### 31.9 Methodology and trust (updated)
+### 31.9 Trust and confidence (updated)
 
-`/methodology` now explains, in plain language: what data sources feed the pipeline (Section 7), how rankings/builds/counters are calculated (Sections 9–11), how confidence scores work and what a "low confidence"/"early ranking" badge means (9.4/9.6), how AI-generated explanations are grounded and reviewed (Section 12), and what a human's role in the system actually is (monitoring, configuration, rare override — Section 27.1). This is a stronger trust asset than the original admin-driven spec could offer, because it describes a verifiable, mechanized process rather than "an editor decided this."
+The site's trust pages (`/disclaimer`, `/about`, `/editorial-policy`) explain, in plain language: that rankings are independently calculated, that data comes from the official Brawl Stars API, and that BrawlRanks is an unofficial fan site. *(The previously planned `/methodology` page — which would have described pipeline internals in detail — has been cancelled; backend implementation details are not publicly exposed.)*
 
 ---
 
@@ -3378,7 +3346,7 @@ Unchanged from the original specification in process and conclusions — this se
 
 ## 35. Structured Data
 
-Unchanged schema-type table and guidance from the original specification (`WebSite`/`Organization` on the homepage, `ItemList`/`BreadcrumbList` on hubs, `FAQPage` where applicable, `Article` on `/meta` and `/updates/[slug]`, `Person` for author/reviewer bylines, no `Product`/`Review`/`SoftwareApplication` misuse). One clarification: `Person` schema for a Brawler page's "reviewed by" byline now needs to correctly express **automated production with human oversight** rather than sole human authorship — the recommended approach is to attribute the page's factual content to the site/`Organization` entity (BrawlRanks' automated pipeline, described via `/methodology`) and reserve `Person` schema specifically for guides and any page carrying a genuine named human reviewer/editor credit (e.g., an emergency-override annotation or a guide byline), rather than implying a named individual hand-wrote every Brawler page's ranking text.
+Unchanged schema-type table and guidance from the original specification (`WebSite`/`Organization` on the homepage, `ItemList`/`BreadcrumbList` on hubs, `FAQPage` where applicable, `Article` on `/meta` and `/updates/[slug]`, `Person` for author/reviewer bylines, no `Product`/`Review`/`SoftwareApplication` misuse). One clarification: `Person` schema for a Brawler page's "reviewed by" byline now needs to correctly express **automated production with human oversight** rather than sole human authorship — the recommended approach is to attribute the page's factual content to the site/`Organization` entity (BrawlRanks' automated pipeline, described on the site's trust pages) and reserve `Person` schema specifically for guides and any page carrying a genuine named human reviewer/editor credit (e.g., an emergency-override annotation or a guide byline), rather than implying a named individual hand-wrote every Brawler page's ranking text.
 
 ---
 
@@ -3466,7 +3434,7 @@ Unchanged public GA4 event list from the original specification (`tier_list_view
 - Homepage, `/tier-list`, `/game-modes` + `/game-modes/[slug]`, `/brawlers` + `/brawlers/[slug]`, `/meta`, `/best-brawlers`
 - Basic guides (human-authored, Section 12.6) — enough to cover beginner onboarding and top informational queries
 - Dynamic SEO metadata, sitemap, robots.txt, JSON-LD, all sourced from published snapshots
-- Legal/trust pages including a `/methodology` page describing the automated pipeline
+- Legal/trust pages including `/disclaimer`, `/about`, and `/editorial-policy` describing the site's independent status
 - GA4 analytics (public events only)
 
 **Explicitly deferred past MVP (does not block launch):**
