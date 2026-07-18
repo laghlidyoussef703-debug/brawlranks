@@ -38,3 +38,20 @@ next-env.d.ts
 # editor
 .vscode/
 .idea/
+
+# database backups and dumps (DATASET Phase 2)
+# A real dump contains the entire production dataset and must never enter
+# Git. Store backups outside this repository entirely — see
+# docs/dataset/restore-runbook.md section 4. These patterns are a safety
+# net, not the primary control.
+*.sql.gz
+*.sql.age
+*.sql.gpg
+*.dump
+*.dump.gz
+*-backup-*.sql
+*.manifest.json
+/backups/
+/brawlranks-backups/
+schema-inventory.json
+restore-validation*.txt
