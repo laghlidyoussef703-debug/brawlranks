@@ -1,1 +1,149 @@
 @import "tailwindcss";
+
+/**
+ * Phase 6A global design tokens (PHASE6.md Section 9/12). Tailwind v4's
+ * CSS-first `@theme` — deliberately not a tailwind.config.js/ts file,
+ * matching the convention already established by this repository's
+ * `@import "tailwindcss"` setup.
+ *
+ * Tier and confidence colors are paired with real text labels everywhere
+ * they're used (TierBadge/ConfidenceBadge) — never color-only, per the
+ * accessibility requirement in PHASE6.md Section 24.
+ */
+@theme {
+  /* ---- Colors: surfaces & text ---- */
+  --color-background: #0b0e14;
+  --color-surface: #141a24;
+  --color-surface-raised: #1c2432;
+  --color-border: #2a3242;
+  --color-text-primary: #f4f6fa;
+  --color-text-secondary: #9aa5ba;
+  --color-text-inverted: #0b0e14;
+
+  /* ---- Colors: brand & accent (from logo/logo.png) ---- */
+  --color-brand: #e0202f;
+  --color-brand-contrast: #ffffff;
+  --color-accent: #ffb020;
+
+  /* ---- Colors: semantic status ---- */
+  --color-success: #2fae66;
+  --color-warning: #e0a72b;
+  --color-danger: #e5484d;
+
+  /* ---- Colors: tier bands (S/A/B/C/D) — color-blind-safe hue spread, always paired with a text label ---- */
+  --color-tier-s: #ff4d6d;
+  --color-tier-s-contrast: #ffffff;
+  --color-tier-a: #ff9f45;
+  --color-tier-a-contrast: #1a1200;
+  --color-tier-b: #ffd23f;
+  --color-tier-b-contrast: #1a1200;
+  --color-tier-c: #7cd992;
+  --color-tier-c-contrast: #0c2013;
+  --color-tier-d: #7d93b3;
+  --color-tier-d-contrast: #0c1220;
+
+  /* ---- Colors: confidence levels — always paired with a text label ---- */
+  --color-confidence-high: #2fae66;
+  --color-confidence-medium: #e0a72b;
+  --color-confidence-low: #d1663b;
+  --color-confidence-insufficient: #6b7688;
+
+  /* ---- Focus ring (WCAG-visible, never removed) ---- */
+  --color-focus-ring: #6ea8ff;
+
+  /* ---- Typography ---- */
+  /* --font-display / --font-cjk are defined below in a separate `@theme
+     inline` block, since they reference runtime variables next/font sets
+     on <html> (lib/fonts.ts) rather than a static value. */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* ---- Layout ---- */
+  --spacing-header-height: 4rem;
+  --spacing-header-height-mobile: 3.5rem;
+  --container-content: 72rem;
+
+  /* Named breakpoints matching PHASE6.md Section 23 / spec Section 17.32
+     exactly (mobile <640, tablet 640-1023, desktop 1024-1439, wide >=1440)
+     — additive to Tailwind's defaults, so `sm:`/`lg:`/etc. still work
+     unchanged alongside these named variants. */
+  --breakpoint-tablet: 40rem; /* 640px */
+  --breakpoint-desktop: 64rem; /* 1024px */
+  --breakpoint-wide: 90rem; /* 1440px */
+
+  /* ---- Radii ---- */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-badge: 999px;
+
+  /* ---- Shadows ---- */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.25);
+  --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
+/**
+ * `@theme inline` (not the plain `@theme` block above): these two tokens
+ * must stay a live `var()` reference rather than being statically baked
+ * in at CSS-build time, because --next-font-display-family/
+ * --next-font-cjk-family are only actually defined at runtime, on <html>,
+ * by the classNames lib/fonts.ts's localFont() calls produce. If a page
+ * never applies those classNames the `ui-rounded`/system fallback in
+ * these stacks is what renders — never a build error, never blank text.
+ */
+@theme inline {
+  --font-display: var(--next-font-display-family), ui-rounded, system-ui, sans-serif;
+  --font-cjk: var(--next-font-cjk-family), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+}
+
+html,
+body {
+  background-color: var(--color-background);
+  background-image:
+    linear-gradient(rgb(0 54 166 / 0.24), rgb(0 34 122 / 0.34)),
+    var(--site-background-image, none);
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+}
+
+@media (max-width: 639px) {
+  html,
+  body {
+    /* Fixed attachment is inconsistently supported on mobile browsers. The
+       image still covers the viewport without repeating or distortion. */
+    background-attachment: scroll;
+  }
+}
+
+/* Minimum 44x44px touch target baseline for interactive controls (PHASE6.md Section 24). Individual components may be visually smaller but must keep a 44x44 hit area via padding. */
+button,
+a[role="button"] {
+  min-height: 44px;
+}
+
+/* Reduced-motion baseline: any transition/animation anywhere is disabled for users who request it, regardless of which component adds it later. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
