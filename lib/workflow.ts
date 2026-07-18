@@ -174,3 +174,109 @@ export async function recordWorkflowStep(
     ]
   );
 }
+
+// ---------------------------------------------------------------------------
+// Resumable job-cursor + stale-run recovery (Phase 5 durable batched cron)
+// ---------------------------------------------------------------------------
+//
+// A long-running aggregation/ranking job now spans MANY short HTTP calls
+// (each does one bounded slice well under the ~60s Hostinger request limit),
+// keeping its workflow_runs row in 'running' for the whole job. The job's
+// resume cursor is persisted as JSON in a single workflow_steps row
+// (step_order 0, step_name 'job_cursor') — no new table is introduced; the
+// existing workflow tables carry all durable state. Each slice rewrites the
+// cursor, which also advances that row's completed_at and so doubles as a
+// liveness heartbeat: reconcileStaleWorkflowRuns uses it to distinguish a
+// genuinely-resuming job (fresh heartbeat) from an abandoned one (a process
+// that died mid-slice, leaving a 'running' row no future call would resume).
+
+const JOB_CURSOR_STEP_NAME = "job_cursor";
+const JOB_CURSOR_STEP_ORDER = 0;
+
+export interface InProgressRun {
+  id: string;
+  startedAt: Date;
+}
+
+/**
+ * The newest still-'running' workflow_run for a definition — the job a
+ * resuming call should continue. Returns null when no job is in flight, in
+ * which case the caller starts a fresh one. Call this only while holding the
+ * workflow lock, so the fresh-vs-resume decision cannot race a concurrent
+ * call.
+ */
+export async function findLatestRunningRun(
+  db: Queryable,
+  workflowDefinitionId: string
+): Promise<InProgressRun | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, started_at
+       FROM workflow_runs
+      WHERE workflow_definition_id = ? AND status = 'running'
+      ORDER BY started_at DESC
+      LIMIT 1`,
+    [workflowDefinitionId]
+  );
+  if (rows.length === 0) return null;
+  return { id: rows[0].id as string, startedAt: rows[0].started_at as Date };
+}
+
+/** Persists (upserts) a job's resume cursor as JSON in its dedicated workflow_steps row. Also advances that row's completed_at (the liveness heartbeat). */
+export async function writeJobCursor(db: Queryable, workflowRunId: string, cursor: unknown): Promise<void> {
+  await recordWorkflowStep(db, workflowRunId, JOB_CURSOR_STEP_NAME, JOB_CURSOR_STEP_ORDER, "running", cursor);
+}
+
+/** Reads a job's resume cursor, or null if none has been written yet (a run interrupted before its first slice). */
+export async function readJobCursor<T>(db: Queryable, workflowRunId: string): Promise<T | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT output_summary FROM workflow_steps WHERE workflow_run_id = ? AND step_order = ?`,
+    [workflowRunId, JOB_CURSOR_STEP_ORDER]
+  );
+  const raw = rows[0]?.output_summary;
+  if (raw === undefined || raw === null) return null;
+  return JSON.parse(raw as string) as T;
+}
+
+export interface StaleReclaimResult {
+  reclaimedRunIds: string[];
+}
+
+/**
+ * Marks abandoned in-flight jobs failed so a fresh job can start. A run is
+ * "stale" when it is still 'running' but its heartbeat — the later of its
+ * started_at and its cursor row's last update — is older than
+ * `staleAfterSeconds`. A live resuming job rewrites its cursor every slice
+ * (i.e. every scheduled call, minutes apart), so its heartbeat stays fresh
+ * and it is never reclaimed; only a job whose process died mid-run goes
+ * stale. Reclaimed runs' locks are left to expire via their own TTL (they
+ * are short-lived, per-slice locks), and any partially-written append-only
+ * aggregate/candidate rows remain harmlessly invisible — nothing reads rows
+ * scoped to a non-succeeded run.
+ */
+export async function reconcileStaleWorkflowRuns(
+  db: Queryable,
+  workflowDefinitionId: string,
+  staleAfterSeconds: number
+): Promise<StaleReclaimResult> {
+  const [staleRows] = await db.query<RowDataPacket[]>(
+    `SELECT wr.id AS id
+       FROM workflow_runs wr
+      WHERE wr.workflow_definition_id = ?
+        AND wr.status = 'running'
+        AND COALESCE(
+              (SELECT MAX(ws.completed_at) FROM workflow_steps ws WHERE ws.workflow_run_id = wr.id),
+              wr.started_at
+            ) < (NOW(3) - INTERVAL ? SECOND)`,
+    [workflowDefinitionId, staleAfterSeconds]
+  );
+  const reclaimedRunIds = staleRows.map((r) => r.id as string);
+  for (const runId of reclaimedRunIds) {
+    await db.execute(
+      `UPDATE workflow_runs
+          SET status = 'failed', completed_at = NOW(3), error_summary = 'stale_reclaimed'
+        WHERE id = ? AND status = 'running'`,
+      [runId]
+    );
+  }
+  return { reclaimedRunIds };
+}

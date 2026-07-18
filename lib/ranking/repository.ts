@@ -167,6 +167,18 @@ export async function getTotalParticipantSlotCount(db: Queryable): Promise<numbe
   return Number(rows[0]?.c ?? 0);
 }
 
+/** Ordered page of active brawler ids after `afterId` (null = from the start) — the resume cursor for the ranking job's per-brawler batching. */
+export async function getActiveBrawlerIdBatch(db: Queryable, afterId: string | null, limit: number): Promise<string[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM canonical_brawlers
+      WHERE is_active = 1 AND (? IS NULL OR id > ?)
+      ORDER BY id
+      LIMIT ?`,
+    [afterId, afterId, limit]
+  );
+  return rows.map((r) => r.id as string);
+}
+
 // ---------------------------------------------------------------------------
 // Matchup aggregates (read directly from the latest aggregation run)
 // ---------------------------------------------------------------------------
@@ -190,6 +202,27 @@ export async function getPooledMatchupRows(db: Queryable, matchupAggregationRunI
       WHERE aggregation_run_id = ?
       GROUP BY brawler_id, opponent_brawler_id`,
     [matchupAggregationRunId]
+  );
+  return rows.map((r) => ({
+    brawlerId: r.brawlerId,
+    opponentBrawlerId: r.opponentBrawlerId,
+    matches: Number(r.matches),
+    wins: Number(r.wins),
+    losses: Number(r.losses),
+  }));
+}
+
+/** Pooled matchup rows for a SINGLE first-side brawler within one aggregation run — the per-brawler slice used by the resumable ranking job's matchup phase (bounded to one brawler's opponents per read). */
+export async function getPooledMatchupRowsForBrawler(db: Queryable, matchupAggregationRunId: string, brawlerId: string): Promise<PooledMatchupRow[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT brawler_id AS brawlerId, opponent_brawler_id AS opponentBrawlerId,
+            SUM(matches) AS matches,
+            SUM(COALESCE(wins, 0)) AS wins,
+            SUM(COALESCE(losses, 0)) AS losses
+       FROM matchup_aggregates
+      WHERE aggregation_run_id = ? AND brawler_id = ?
+      GROUP BY brawler_id, opponent_brawler_id`,
+    [matchupAggregationRunId, brawlerId]
   );
   return rows.map((r) => ({
     brawlerId: r.brawlerId,
@@ -304,6 +337,101 @@ export async function insertMatchupResult(db: Queryable, rankingRunId: string, r
       row.meetsFloor ? 1 : 0,
     ]
   );
+}
+
+/**
+ * Sets the overall (mode = NULL) candidate row's matchup_coverage for a
+ * brawler in a run — written during the resumable job's matchup phase, after
+ * that brawler's pooled opponents are classified. Per-mode rows never carry
+ * matchup_coverage (Section 9.1: modes are independently scored).
+ */
+export async function updateRankingResultMatchupCoverage(db: Queryable, rankingRunId: string, brawlerId: string, coverage: number): Promise<void> {
+  await db.execute(
+    "UPDATE ranking_results SET matchup_coverage = ? WHERE ranking_run_id = ? AND brawler_id = ? AND game_mode_id IS NULL",
+    [coverage, rankingRunId, brawlerId]
+  );
+}
+
+export interface RunCandidateRow {
+  id: string;
+  brawlerId: string;
+  gameModeId: string | null;
+  matches: number;
+  winRate: number | null;
+  highRankWinRate: number | null;
+  matchupCoverage: number | null;
+  metaScore: number | null;
+  tier: "S" | "A" | "B" | "C" | "D" | null;
+  confidence: "insufficient" | "low" | "medium" | "high";
+  meetsFloor: boolean;
+}
+
+/** Every candidate ranking_results row for a run (overall + per-mode). Bounded by the brawler catalog size, so safe to read whole into memory for the finalize (pick-rate/tier) and publish phases. */
+export async function getRankingResultsForRun(db: Queryable, rankingRunId: string): Promise<RunCandidateRow[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, brawler_id AS brawlerId, game_mode_id AS gameModeId, matches, win_rate AS winRate,
+            high_rank_win_rate AS highRankWinRate, matchup_coverage AS matchupCoverage,
+            meta_score AS metaScore, tier, confidence, meets_floor AS meetsFloor
+       FROM ranking_results
+      WHERE ranking_run_id = ?`,
+    [rankingRunId]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    brawlerId: r.brawlerId,
+    gameModeId: r.gameModeId,
+    matches: Number(r.matches),
+    winRate: r.winRate === null ? null : Number(r.winRate),
+    highRankWinRate: r.highRankWinRate === null ? null : Number(r.highRankWinRate),
+    matchupCoverage: r.matchupCoverage === null ? null : Number(r.matchupCoverage),
+    metaScore: r.metaScore === null ? null : Number(r.metaScore),
+    tier: r.tier,
+    confidence: r.confidence,
+    meetsFloor: Boolean(r.meetsFloor),
+  }));
+}
+
+/** Finalize update: stamps a candidate row's pick_rate (global-denominator-dependent), meta_score, and percentile tier once all brawlers are processed. */
+export async function updateRankingResultScoreTier(
+  db: Queryable,
+  id: string,
+  params: { pickRate: number | null; metaScore: number | null; tier: "S" | "A" | "B" | "C" | "D" | null }
+): Promise<void> {
+  await db.execute(
+    "UPDATE ranking_results SET pick_rate = ?, meta_score = ?, tier = ? WHERE id = ?",
+    [params.pickRate, params.metaScore, params.tier, id]
+  );
+}
+
+export interface QualifyingMatchupResult {
+  brawlerId: string;
+  opponentBrawlerId: string;
+  relationship: "hard_counter" | "counter" | "neutral" | "strong" | "hard_advantage";
+  confidenceLevel: "probable_counter" | "high_confidence_counter";
+  winRate: number;
+  matches: number;
+}
+
+/** Publishable matchup candidates for a run — only classified pairs at probable/high confidence (the exact publish gate from the original design), read as a bounded subset rather than the full candidate set. */
+export async function getQualifyingMatchupResults(db: Queryable, rankingRunId: string): Promise<QualifyingMatchupResult[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT brawler_id AS brawlerId, opponent_brawler_id AS opponentBrawlerId, relationship,
+            confidence_level AS confidenceLevel, win_rate AS winRate, matches
+       FROM matchup_results
+      WHERE ranking_run_id = ?
+        AND relationship IS NOT NULL
+        AND win_rate IS NOT NULL
+        AND confidence_level IN ('probable_counter', 'high_confidence_counter')`,
+    [rankingRunId]
+  );
+  return rows.map((r) => ({
+    brawlerId: r.brawlerId,
+    opponentBrawlerId: r.opponentBrawlerId,
+    relationship: r.relationship,
+    confidenceLevel: r.confidenceLevel,
+    winRate: Number(r.winRate),
+    matches: Number(r.matches),
+  }));
 }
 
 // ---------------------------------------------------------------------------

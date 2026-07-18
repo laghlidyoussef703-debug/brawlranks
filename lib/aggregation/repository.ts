@@ -5,8 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { computeWinRate } from "@/lib/aggregation/formulas";
+import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 
 type Queryable = Pool | PoolConnection;
 
@@ -35,119 +34,105 @@ export async function completeAggregationRun(
   );
 }
 
-export interface ModeAggregateRow {
-  brawlerId: string;
-  gameModeId: string;
-  patchId: string | null;
-  matches: number;
-  wins: number;
-  losses: number;
-  draws: number;
-  latestBattleAt: Date | null;
+// ---------------------------------------------------------------------------
+// Durable batched aggregation (Phase 5 resumable state machine)
+// ---------------------------------------------------------------------------
+//
+// The per-row compute + one-INSERT-per-row loops that made runtime grow with
+// the dataset (and eventually blew past the ~60s Hostinger request limit)
+// are replaced by set-based `INSERT ... SELECT ... GROUP BY`, partitioned by
+// a bounded batch of brawler_ids per HTTP call. Each statement below writes
+// every aggregate row for the given brawlers in ONE round trip, and each
+// call processes only a small, cursor-advanced slice of brawlers — so a
+// single request's work stays bounded no matter how large the dataset grows.
+// win_rate is computed in SQL with the exact same "null when no win/loss
+// data" semantics as computeWinRate (never a fabricated 0%).
+
+/** Ordered page of active brawler ids after `afterId` (null = from the start) — the resume cursor for every aggregation scope's per-brawler batching. */
+export async function getActiveBrawlerIdBatch(db: Queryable, afterId: string | null, limit: number): Promise<string[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM canonical_brawlers
+      WHERE is_active = 1 AND (? IS NULL OR id > ?)
+      ORDER BY id
+      LIMIT ?`,
+    [afterId, afterId, limit]
+  );
+  return rows.map((r) => r.id as string);
 }
 
-/**
- * Per (brawler, game_mode, patch) — one row per tuple actually present in
- * the data. `battle_teams.result` is LEFT JOINed (a participant whose team
- * result was never resolved contributes to `matches` but to none of
- * wins/losses/draws — Section 7.4's "unknown" result handling).
- * `latestBattleAt` (Section 7.8's "Data freshness" metric, migration 0023)
- * is what Phase 5.3's ranking layer uses to derive this group's recency
- * weight without re-scanning raw battles itself.
- */
-export async function computeModeAggregates(db: Queryable): Promise<ModeAggregateRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT bp.brawler_id AS brawlerId, nb.game_mode_id AS gameModeId, nb.patch_id AS patchId,
-            COUNT(*) AS matches,
-            SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END) AS losses,
-            SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END) AS draws,
-            MAX(nb.occurred_at) AS latestBattleAt
+function inPlaceholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
+}
+
+export async function insertModeAggregatesForBrawlers(db: Queryable, aggregationRunId: string, brawlerIds: string[]): Promise<void> {
+  if (brawlerIds.length === 0) return;
+  await db.query(
+    `INSERT INTO brawler_mode_aggregates
+       (id, aggregation_run_id, brawler_id, game_mode_id, patch_id, matches, wins, losses, draws, win_rate, latest_battle_at)
+     SELECT UUID(), ?, bp.brawler_id, nb.game_mode_id, nb.patch_id,
+            COUNT(*),
+            SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END),
+            CASE WHEN SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) + SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END) > 0
+                 THEN SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) /
+                      (SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) + SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END))
+                 ELSE NULL END,
+            MAX(nb.occurred_at)
        FROM battle_participants bp
        JOIN normalized_battles nb ON nb.id = bp.battle_id
        LEFT JOIN battle_teams bt ON bt.id = bp.battle_team_id
       WHERE nb.game_mode_id IS NOT NULL
-      GROUP BY bp.brawler_id, nb.game_mode_id, nb.patch_id`
+        AND bp.brawler_id IN (${inPlaceholders(brawlerIds.length)})
+      GROUP BY bp.brawler_id, nb.game_mode_id, nb.patch_id`,
+    [aggregationRunId, ...brawlerIds]
   );
-  return rows.map((r) => ({
-    brawlerId: r.brawlerId,
-    gameModeId: r.gameModeId,
-    patchId: r.patchId,
-    matches: Number(r.matches),
-    wins: Number(r.wins),
-    losses: Number(r.losses),
-    draws: Number(r.draws),
-    latestBattleAt: r.latestBattleAt ?? null,
-  }));
 }
 
-export interface OverallAggregateRow {
-  brawlerId: string;
-  patchId: string | null;
-  matches: number;
-  wins: number;
-  losses: number;
-  draws: number;
-  modeCoverageCount: number;
-  latestBattleAt: Date | null;
-}
-
-/** Per (brawler, patch) across every mode combined — Section 7.8/7.12's "overall" scope. */
-export async function computeOverallAggregates(db: Queryable): Promise<OverallAggregateRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT bp.brawler_id AS brawlerId, nb.patch_id AS patchId,
-            COUNT(*) AS matches,
-            SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END) AS losses,
-            SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END) AS draws,
-            COUNT(DISTINCT nb.game_mode_id) AS modeCoverageCount,
-            MAX(nb.occurred_at) AS latestBattleAt
+export async function insertOverallAggregatesForBrawlers(db: Queryable, aggregationRunId: string, brawlerIds: string[]): Promise<void> {
+  if (brawlerIds.length === 0) return;
+  await db.query(
+    `INSERT INTO brawler_overall_aggregates
+       (id, aggregation_run_id, brawler_id, patch_id, matches, wins, losses, draws, win_rate, mode_coverage_count, latest_battle_at)
+     SELECT UUID(), ?, bp.brawler_id, nb.patch_id,
+            COUNT(*),
+            SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN bt.result = 'draw' THEN 1 ELSE 0 END),
+            CASE WHEN SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) + SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END) > 0
+                 THEN SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) /
+                      (SUM(CASE WHEN bt.result = 'victory' THEN 1 ELSE 0 END) + SUM(CASE WHEN bt.result = 'defeat' THEN 1 ELSE 0 END))
+                 ELSE NULL END,
+            COUNT(DISTINCT nb.game_mode_id),
+            MAX(nb.occurred_at)
        FROM battle_participants bp
        JOIN normalized_battles nb ON nb.id = bp.battle_id
        LEFT JOIN battle_teams bt ON bt.id = bp.battle_team_id
-      GROUP BY bp.brawler_id, nb.patch_id`
+      WHERE bp.brawler_id IN (${inPlaceholders(brawlerIds.length)})
+      GROUP BY bp.brawler_id, nb.patch_id`,
+    [aggregationRunId, ...brawlerIds]
   );
-  return rows.map((r) => ({
-    brawlerId: r.brawlerId,
-    patchId: r.patchId,
-    matches: Number(r.matches),
-    wins: Number(r.wins),
-    losses: Number(r.losses),
-    draws: Number(r.draws),
-    modeCoverageCount: Number(r.modeCoverageCount),
-    latestBattleAt: r.latestBattleAt ?? null,
-  }));
 }
 
-export interface MatchupAggregateRow {
-  brawlerId: string;
-  opponentBrawlerId: string;
-  gameModeId: string | null;
-  patchId: string | null;
-  matches: number;
-  wins: number;
-  losses: number;
-  latestBattleAt: Date | null;
-}
-
-/**
- * Per ordered (brawler, opponent, mode, patch) pair — "opponent" is a
- * co-participant on a DIFFERENT, non-null battle_team_id within the same
- * battle (migration 0022's header explains why this is the direct,
- * schema-derived meaning of "opponent," not an invented rule). Mirror
- * matches (same Brawler both sides) are excluded per Section 7.10.
- * Win/loss is read from the FIRST Brawler's own team result, so the
- * inverse pair's row (opponent, brawler) is naturally the mathematically
- * consistent inverse (Section 11.3) without extra logic.
- */
-export async function computeMatchupAggregates(db: Queryable): Promise<MatchupAggregateRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT bp1.brawler_id AS brawlerId, bp2.brawler_id AS opponentBrawlerId,
-            nb.game_mode_id AS gameModeId, nb.patch_id AS patchId,
-            COUNT(*) AS matches,
-            SUM(CASE WHEN bt1.result = 'victory' THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN bt1.result = 'defeat' THEN 1 ELSE 0 END) AS losses,
-            MAX(nb.occurred_at) AS latestBattleAt
+export async function insertMatchupAggregatesForBrawlers(db: Queryable, aggregationRunId: string, brawlerIds: string[]): Promise<void> {
+  if (brawlerIds.length === 0) return;
+  // Self-join restricted to this batch's first-side (bp1) brawlers only — the
+  // heaviest query in the whole pipeline, now bounded to a handful of
+  // brawlers per call. Distinct brawlers per batch means no batch can
+  // conflict with another on the unique (brawler, opponent, mode, patch, run)
+  // key. Semantics are identical to the pre-batch matchup query.
+  await db.query(
+    `INSERT INTO matchup_aggregates
+       (id, aggregation_run_id, brawler_id, opponent_brawler_id, game_mode_id, patch_id, matches, wins, losses, win_rate, latest_battle_at)
+     SELECT UUID(), ?, bp1.brawler_id, bp2.brawler_id, nb.game_mode_id, nb.patch_id,
+            COUNT(*),
+            SUM(CASE WHEN bt1.result = 'victory' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN bt1.result = 'defeat' THEN 1 ELSE 0 END),
+            CASE WHEN SUM(CASE WHEN bt1.result = 'victory' THEN 1 ELSE 0 END) + SUM(CASE WHEN bt1.result = 'defeat' THEN 1 ELSE 0 END) > 0
+                 THEN SUM(CASE WHEN bt1.result = 'victory' THEN 1 ELSE 0 END) /
+                      (SUM(CASE WHEN bt1.result = 'victory' THEN 1 ELSE 0 END) + SUM(CASE WHEN bt1.result = 'defeat' THEN 1 ELSE 0 END))
+                 ELSE NULL END,
+            MAX(nb.occurred_at)
        FROM battle_participants bp1
        JOIN battle_participants bp2
          ON bp2.battle_id = bp1.battle_id
@@ -157,79 +142,40 @@ export async function computeMatchupAggregates(db: Queryable): Promise<MatchupAg
        JOIN normalized_battles nb ON nb.id = bp1.battle_id
        LEFT JOIN battle_teams bt1 ON bt1.id = bp1.battle_team_id
       WHERE bp1.brawler_id <> bp2.brawler_id
-      GROUP BY bp1.brawler_id, bp2.brawler_id, nb.game_mode_id, nb.patch_id`
-  );
-  return rows.map((r) => ({
-    brawlerId: r.brawlerId,
-    opponentBrawlerId: r.opponentBrawlerId,
-    gameModeId: r.gameModeId,
-    patchId: r.patchId,
-    matches: Number(r.matches),
-    wins: Number(r.wins),
-    losses: Number(r.losses),
-    latestBattleAt: r.latestBattleAt ?? null,
-  }));
-}
-
-export async function insertModeAggregate(db: Queryable, aggregationRunId: string, row: ModeAggregateRow): Promise<void> {
-  await db.execute<ResultSetHeader>(
-    `INSERT INTO brawler_mode_aggregates
-       (id, aggregation_run_id, brawler_id, game_mode_id, patch_id, matches, wins, losses, draws, win_rate, latest_battle_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      randomUUID(),
-      aggregationRunId,
-      row.brawlerId,
-      row.gameModeId,
-      row.patchId,
-      row.matches,
-      row.wins,
-      row.losses,
-      row.draws,
-      computeWinRate(row.wins, row.losses),
-      row.latestBattleAt,
-    ]
+        AND bp1.brawler_id IN (${inPlaceholders(brawlerIds.length)})
+      GROUP BY bp1.brawler_id, bp2.brawler_id, nb.game_mode_id, nb.patch_id`,
+    [aggregationRunId, ...brawlerIds]
   );
 }
 
-export async function insertOverallAggregate(db: Queryable, aggregationRunId: string, row: OverallAggregateRow): Promise<void> {
-  await db.execute<ResultSetHeader>(
-    `INSERT INTO brawler_overall_aggregates
-       (id, aggregation_run_id, brawler_id, patch_id, matches, wins, losses, draws, win_rate, mode_coverage_count, latest_battle_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      randomUUID(),
-      aggregationRunId,
-      row.brawlerId,
-      row.patchId,
-      row.matches,
-      row.wins,
-      row.losses,
-      row.draws,
-      computeWinRate(row.wins, row.losses),
-      row.modeCoverageCount,
-      row.latestBattleAt,
-    ]
+/** Total aggregate rows written for a run (the append-only row count reported as brawlers_processed, preserving the pre-batch semantic of "rows produced"). */
+export async function countAggregateRows(db: Queryable, table: "brawler_mode_aggregates" | "brawler_overall_aggregates" | "matchup_aggregates", aggregationRunId: string): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM ${table} WHERE aggregation_run_id = ?`,
+    [aggregationRunId]
   );
+  return Number(rows[0]?.c ?? 0);
 }
 
-export async function insertMatchupAggregate(db: Queryable, aggregationRunId: string, row: MatchupAggregateRow): Promise<void> {
-  await db.execute<ResultSetHeader>(
-    `INSERT INTO matchup_aggregates
-       (id, aggregation_run_id, brawler_id, opponent_brawler_id, game_mode_id, patch_id, matches, wins, losses, win_rate, latest_battle_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      randomUUID(),
-      aggregationRunId,
-      row.brawlerId,
-      row.opponentBrawlerId,
-      row.gameModeId,
-      row.patchId,
-      row.matches,
-      row.wins,
-      row.losses,
-      computeWinRate(row.wins, row.losses),
-      row.latestBattleAt,
-    ]
+/**
+ * Set-based reconciliation gate (Section 7.24): counts rows violating the
+ * wins+losses(+draws) <= matches invariant for a run — the exact same check
+ * reconcileCounts performed per-row, now one query per scope. Battle-level
+ * scopes include draws; the matchup scope has no draws dimension.
+ */
+export async function countReconciliationWarnings(
+  db: Queryable,
+  scope: "battle" | "matchup",
+  table: "brawler_mode_aggregates" | "brawler_overall_aggregates" | "matchup_aggregates",
+  aggregationRunId: string
+): Promise<number> {
+  const predicate =
+    scope === "battle"
+      ? "wins < 0 OR losses < 0 OR draws < 0 OR matches < 0 OR (wins + losses + draws) > matches"
+      : "wins < 0 OR losses < 0 OR matches < 0 OR (wins + losses) > matches";
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM ${table} WHERE aggregation_run_id = ? AND (${predicate})`,
+    [aggregationRunId]
   );
+  return Number(rows[0]?.c ?? 0);
 }

@@ -21,6 +21,24 @@ export function logSafeError(context: string, code: string, detail?: unknown) {
   );
 }
 
+/**
+ * Structured, non-sensitive info/progress logging (JSON to stdout) for
+ * long-running batched workflows. Same safety contract as logSafeError:
+ * only pass primitive, non-secret fields. Used for batch-progress and
+ * lifecycle telemetry (Phase 5 resumable aggregation/ranking).
+ */
+export function logSafeInfo(context: string, event: string, detail?: Record<string, unknown>) {
+  console.log(
+    JSON.stringify({
+      level: "info",
+      context,
+      event,
+      ...(detail ?? {}),
+      time: new Date().toISOString(),
+    })
+  );
+}
+
 export type ErrorCode =
   | "UNAUTHORIZED"
   | "SERVER_MISCONFIGURED"

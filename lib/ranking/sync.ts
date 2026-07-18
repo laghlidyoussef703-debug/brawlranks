@@ -6,9 +6,34 @@
  * win_rate/pick_rate/high_rank_win_rate read raw participation rows while
  * matchup classification and the aggregation-existence precondition read
  * only the latest aggregation run, per task item 9).
+ *
+ * DURABLE, RESUMABLE EXECUTION (Phase 5 timeout fix — see PHASE5.md
+ * "Durable batched execution"): the previous design fetched every brawler's
+ * raw participation rows and wrote every candidate row inside one HTTP
+ * request, whose runtime grew with the dataset (production 500 under
+ * connection contention behind the ~60s Hostinger request limit). It is
+ * replaced by a bounded-batch state machine spanning many short calls:
+ *
+ *   brawlers -> matchups -> finalize -> publish -> done
+ *
+ * The `brawlers` and `matchups` phases process a small, cursor-advanced
+ * batch of brawlers per call, writing partial candidate rows. `finalize`
+ * computes the pick-rate denominators and percentile tiers (which need the
+ * whole run) over the now-persisted, bounded candidate set. `publish`
+ * applies the mass-movement guard, no-significant-change rule, and atomic
+ * snapshot publication — unchanged semantics, still one transaction.
+ *
+ * `stepRankingRebuild` is the per-call HTTP entry point (started/in_progress/
+ * completed); `runRankingRebuild` is a run-to-completion driver (tests/manual)
+ * whose return shape is unchanged. Ranking is never computed against an
+ * incomplete aggregation: getLatestSuccessfulAggregation only returns a
+ * fully-'succeeded' aggregation run.
  */
 
+import { randomUUID } from "node:crypto";
+import type { Pool, PoolConnection } from "mysql2/promise";
 import { getPool } from "@/lib/mysql";
+import { logSafeInfo } from "@/lib/errors";
 import * as rankingRepo from "@/lib/ranking/repository";
 import type { RawParticipationRow } from "@/lib/ranking/repository";
 import { getActivePatch } from "@/lib/patches/repository";
@@ -39,19 +64,94 @@ import {
   releaseWorkflowLock,
   startWorkflowRun,
   completeWorkflowRun,
+  findLatestRunningRun,
+  readJobCursor,
+  writeJobCursor,
+  reconcileStaleWorkflowRuns,
 } from "@/lib/workflow";
 
 const WORKFLOW_SLUG = "ranking-rebuild";
 const PER_PLAYER_CAP = 20;
 
+export const DEFAULT_RANKING_BATCH_SIZE = 8;
+export const MAX_RANKING_BATCH_SIZE = 50;
+
+const SLICE_LOCK_TTL_MS = 2 * 60_000;
+const DRIVER_LOCK_TTL_MS = 15 * 60_000;
+const STALE_JOB_SECONDS = 15 * 60;
+const MAX_DRIVER_SLICES = 1_000_000;
+
+type RankingPhase = "brawlers" | "matchups" | "finalize" | "publish" | "done";
+
+export type RankingOutcome =
+  | "published"
+  | "held_mass_movement"
+  | "no_significant_change"
+  | "no_valid_aggregation"
+  | "no_active_rule_set"
+  | "lock_not_acquired";
+
+interface RankingCursor {
+  phase: RankingPhase;
+  rankingRunId: string;
+  aggIds: { mode: string; overall: string; matchup: string };
+  ruleSetId: string;
+  patchId: string | null;
+  patchVersionLabel: string | null;
+  nowIso: string;
+  brawlerCursor: string | null;
+}
+
 export interface RankingRebuildResult {
-  outcome: "published" | "held_mass_movement" | "no_significant_change" | "no_valid_aggregation" | "no_active_rule_set" | "lock_not_acquired";
+  outcome: RankingOutcome;
   workflowRunId?: string;
   rankingRunId?: string;
   brawlersEvaluated?: number;
   brawlersPublished?: number;
   tierMoveRatio?: number;
 }
+
+export interface RankingStepResult {
+  status: "started" | "in_progress" | "completed" | "lock_not_acquired";
+  phase: RankingPhase;
+  workflowRunId?: string;
+  rankingRunId?: string;
+  outcome?: RankingOutcome;
+  brawlersEvaluated?: number;
+  brawlersPublished?: number;
+  tierMoveRatio?: number;
+}
+
+interface SliceOutcome {
+  freshStart: boolean;
+  done: boolean;
+  phase: RankingPhase;
+  workflowRunId: string;
+  rankingRunId?: string;
+  outcome?: RankingOutcome;
+  brawlersEvaluated?: number;
+  brawlersPublished?: number;
+  tierMoveRatio?: number;
+}
+
+async function withTransaction<T>(pool: Pool, fn: (c: PoolConnection) => Promise<T>): Promise<T> {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await fn(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-brawler raw computation (unchanged from the original single-run design)
+// ---------------------------------------------------------------------------
 
 function daysAgo(occurredAt: Date, now: Date): number {
   return (now.getTime() - occurredAt.getTime()) / 86_400_000;
@@ -73,7 +173,6 @@ function accumulateWeighted(rows: RawParticipationRow[], now: Date): WeightedTot
   return { weightedWins, weightedLosses };
 }
 
-/** Blended win rate for a set of rows, splitting current-patch vs. all-data exactly per decision report item 9. */
 function computeBlendedWinRate(rows: RawParticipationRow[], activePatchId: string | null, now: Date): { winRate: number | null; matches: number } {
   const allStats = accumulateWeighted(rows, now);
   const allDataWinRate = computeWinRate(allStats.weightedWins, allStats.weightedLosses);
@@ -102,12 +201,11 @@ interface BrawlerComputation {
   brawlerId: string;
   overallMatches: number;
   overallWinRate: number | null;
-  overallSlotCount: number;
   highRankWinRate: number | null;
   distinctRegions: number;
   distinctTrophyBrackets: number;
   recentWithin30Days: boolean;
-  byMode: Map<string, { matches: number; winRate: number | null; slotCount: number }>;
+  byMode: Map<string, { matches: number; winRate: number | null }>;
 }
 
 function computeForBrawler(brawlerId: string, rawRows: RawParticipationRow[], activePatchId: string | null, now: Date, ruleSet: rankingRepo.ActiveRuleSet): BrawlerComputation {
@@ -125,18 +223,17 @@ function computeForBrawler(brawlerId: string, rawRows: RawParticipationRow[], ac
   const recentWithin30Days = capped.some((r) => daysAgo(r.occurredAt, now) <= 30);
 
   const modeIds = new Set(capped.map((r) => r.gameModeId).filter((m): m is string => Boolean(m)));
-  const byMode = new Map<string, { matches: number; winRate: number | null; slotCount: number }>();
+  const byMode = new Map<string, { matches: number; winRate: number | null }>();
   for (const modeId of modeIds) {
     const modeRows = capped.filter((r) => r.gameModeId === modeId);
     const modeResult = computeBlendedWinRate(modeRows, activePatchId, now);
-    byMode.set(modeId, { matches: modeResult.matches, winRate: modeResult.winRate, slotCount: modeRows.length });
+    byMode.set(modeId, { matches: modeResult.matches, winRate: modeResult.winRate });
   }
 
   return {
     brawlerId,
     overallMatches: overall.matches,
     overallWinRate: overall.winRate,
-    overallSlotCount: capped.length,
     highRankWinRate,
     distinctRegions: regions.size,
     distinctTrophyBrackets: brackets.size,
@@ -145,198 +242,193 @@ function computeForBrawler(brawlerId: string, rawRows: RawParticipationRow[], ac
   };
 }
 
-export async function runRankingRebuild(triggeredBy: "manual" | "cron"): Promise<RankingRebuildResult> {
-  const pool = getPool();
-  const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
-  const workflowRunId = await startWorkflowRun(pool, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
+// ---------------------------------------------------------------------------
+// State machine
+// ---------------------------------------------------------------------------
 
-  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, workflowRunId);
-  if (!lock.acquired) {
-    await completeWorkflowRun(pool, workflowRunId, "failed", "lock_not_acquired");
-    return { outcome: "lock_not_acquired" };
+async function executeNextRankingSlice(
+  pool: Pool,
+  workflowDefinitionId: string,
+  triggeredBy: "manual" | "cron",
+  batchSize: number
+): Promise<SliceOutcome> {
+  const running = await findLatestRunningRun(pool, workflowDefinitionId);
+
+  if (!running) {
+    return startRankingJob(pool, workflowDefinitionId, triggeredBy);
   }
 
-  try {
-    // --- Preconditions (item 9: "fail safely if no valid aggregation exists") ---
-    const latestAggregation = await rankingRepo.getLatestSuccessfulAggregation(pool);
-    if (!latestAggregation) {
-      await completeWorkflowRun(pool, workflowRunId, "failed", "no_valid_aggregation");
-      return { outcome: "no_valid_aggregation", workflowRunId };
-    }
+  const workflowRunId = running.id;
+  const cursor = await readJobCursor<RankingCursor>(pool, workflowRunId);
+  if (!cursor) {
+    await completeWorkflowRun(pool, workflowRunId, "failed", "missing_cursor");
+    logSafeInfo("ranking-rebuild", "job_failed_missing_cursor", { workflowRunId });
+    return { freshStart: false, done: false, phase: "brawlers", workflowRunId };
+  }
 
-    const ruleSet = await rankingRepo.getActiveRuleSet(pool);
-    if (!ruleSet || !ruleSet.overallTierThreshold) {
-      await completeWorkflowRun(pool, workflowRunId, "failed", "no_active_rule_set");
-      return { outcome: "no_active_rule_set", workflowRunId };
-    }
+  switch (cursor.phase) {
+    case "brawlers":
+      return brawlersPhase(pool, workflowRunId, cursor, batchSize);
+    case "matchups":
+      return matchupsPhase(pool, workflowRunId, cursor, batchSize);
+    case "finalize":
+      return finalizePhase(pool, workflowRunId, cursor);
+    case "publish":
+    case "done":
+      return publishPhase(pool, workflowRunId, cursor);
+    default:
+      throw new Error(`unknown ranking phase: ${cursor.phase}`);
+  }
+}
 
-    const activePatch = await getActivePatch(pool);
-    const activePatchId = activePatch?.id ?? null;
-    const now = new Date();
+async function startRankingJob(pool: Pool, workflowDefinitionId: string, triggeredBy: "manual" | "cron"): Promise<SliceOutcome> {
+  const workflowRunId = await startWorkflowRun(pool, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
 
-    const rankingRunId = await rankingRepo.createRankingRun(pool, {
-      workflowRunId,
-      rankingRuleSetId: ruleSet.id,
-      modeAggregationRunId: latestAggregation.modeAggregationRunId,
-      overallAggregationRunId: latestAggregation.overallAggregationRunId,
-      matchupAggregationRunId: latestAggregation.matchupAggregationRunId,
-      patchId: activePatchId,
-    });
+  const latestAggregation = await rankingRepo.getLatestSuccessfulAggregation(pool);
+  if (!latestAggregation) {
+    await completeWorkflowRun(pool, workflowRunId, "failed", "no_valid_aggregation");
+    logSafeInfo("ranking-rebuild", "job_terminal", { workflowRunId, outcome: "no_valid_aggregation" });
+    return { freshStart: true, done: true, phase: "done", workflowRunId, outcome: "no_valid_aggregation" };
+  }
 
-    // --- Per-Brawler raw computation (sequential, one connection — see lib/ranking/repository.ts's data-source note) ---
-    const brawlerIds = await rankingRepo.getActiveBrawlerIds(pool);
-    const computations: BrawlerComputation[] = [];
-    for (const brawlerId of brawlerIds) {
-      const rawRows = await rankingRepo.getRawParticipationRows(pool, brawlerId);
-      computations.push(computeForBrawler(brawlerId, rawRows, activePatchId, now, ruleSet));
-    }
+  const ruleSet = await rankingRepo.getActiveRuleSet(pool);
+  if (!ruleSet || !ruleSet.overallTierThreshold) {
+    await completeWorkflowRun(pool, workflowRunId, "failed", "no_active_rule_set");
+    logSafeInfo("ranking-rebuild", "job_terminal", { workflowRunId, outcome: "no_active_rule_set" });
+    return { freshStart: true, done: true, phase: "done", workflowRunId, outcome: "no_active_rule_set" };
+  }
 
-    // --- Matchup coverage input (pooled from the latest aggregation run) ---
-    const pooledMatchups = await rankingRepo.getPooledMatchupRows(pool, latestAggregation.matchupAggregationRunId);
-    const matchupCoverageByBrawler = new Map<string, number>();
-    const matchupClassificationsByPair = new Map<string, ReturnType<typeof classifyMatchup>>();
-    const opponentsByBrawler = new Map<string, string[]>();
-    for (const row of pooledMatchups) {
-      const list = opponentsByBrawler.get(row.brawlerId) ?? [];
-      list.push(row.opponentBrawlerId);
-      opponentsByBrawler.set(row.brawlerId, list);
-      const winRate = computeWinRate(row.wins, row.losses);
-      matchupClassificationsByPair.set(`${row.brawlerId}::${row.opponentBrawlerId}`, classifyMatchup(winRate, row.matches));
-    }
-    for (const [brawlerId, opponents] of opponentsByBrawler) {
-      const total = opponents.length;
-      const qualifying = opponents.filter((opp) => matchupClassificationsByPair.get(`${brawlerId}::${opp}`) !== null).length;
-      matchupCoverageByBrawler.set(brawlerId, total > 0 ? qualifying / total : 0);
-    }
+  const activePatch = await getActivePatch(pool);
+  const activePatchId = activePatch?.id ?? null;
+  const now = new Date();
 
-    // --- Pick-rate denominators (overall + per-mode), from the capped slot counts already derived above ---
-    const overallSlotTotal = computations.reduce((sum, c) => sum + c.overallSlotCount, 0);
-    const modeSlotTotals = new Map<string, number>();
-    for (const c of computations) {
-      for (const [modeId, mode] of c.byMode) {
-        modeSlotTotals.set(modeId, (modeSlotTotals.get(modeId) ?? 0) + mode.slotCount);
-      }
-    }
+  const rankingRunId = await rankingRepo.createRankingRun(pool, {
+    workflowRunId,
+    rankingRuleSetId: ruleSet.id,
+    modeAggregationRunId: latestAggregation.modeAggregationRunId,
+    overallAggregationRunId: latestAggregation.overallAggregationRunId,
+    matchupAggregationRunId: latestAggregation.matchupAggregationRunId,
+    patchId: activePatchId,
+  });
 
-    const overallWeight = ruleSet.weights["win_rate"];
-    const overallFloor = overallWeight?.minSampleSize ?? 100;
-    const modeFloor = ruleSet.weights["mode_win_rate"]?.minSampleSize ?? 30;
+  const cursor: RankingCursor = {
+    phase: "brawlers",
+    rankingRunId,
+    aggIds: { mode: latestAggregation.modeAggregationRunId, overall: latestAggregation.overallAggregationRunId, matchup: latestAggregation.matchupAggregationRunId },
+    ruleSetId: ruleSet.id,
+    patchId: activePatchId,
+    patchVersionLabel: activePatch?.versionLabel ?? null,
+    nowIso: now.toISOString(),
+    brawlerCursor: null,
+  };
+  await writeJobCursor(pool, workflowRunId, cursor);
+  logSafeInfo("ranking-rebuild", "job_started", { workflowRunId, rankingRunId });
+  return { freshStart: true, done: false, phase: "brawlers", workflowRunId, rankingRunId };
+}
 
-    // --- Overall scores + eligibility ---
-    interface OverallCandidate {
-      brawlerId: string;
-      matches: number;
-      winRate: number | null;
-      pickRate: number;
-      highRankWinRate: number | null;
-      matchupCoverage: number;
-      metaScore: number | null;
-      meetsFloor: boolean;
-      confidence: ConfidenceLabel;
-    }
-    const overallCandidates: OverallCandidate[] = computations.map((c) => {
-      const pickRate = overallSlotTotal > 0 ? c.overallSlotCount / overallSlotTotal : 0;
-      const meetsFloor = c.overallMatches >= overallFloor && c.overallWinRate !== null;
-      const matchupCoverage = matchupCoverageByBrawler.get(c.brawlerId) ?? 0;
-      const metaScore = meetsFloor
-        ? computeOverallScore({ winRate: c.overallWinRate as number, pickRate, highRankWinRate: c.highRankWinRate, matchupCoverage })
-        : null;
-      const confidence = computeOverallConfidence(c.overallMatches, {
-        recentBattleWithin30Days: c.recentWithin30Days,
-        distinctRegions: c.distinctRegions,
-        distinctTrophyBrackets: c.distinctTrophyBrackets,
+async function requireActiveRuleSet(pool: Pool): Promise<rankingRepo.ActiveRuleSet> {
+  const ruleSet = await rankingRepo.getActiveRuleSet(pool);
+  if (!ruleSet || !ruleSet.overallTierThreshold) throw new Error("active ranking rule set disappeared mid-run");
+  return ruleSet;
+}
+
+async function brawlersPhase(pool: Pool, workflowRunId: string, cursor: RankingCursor, batchSize: number): Promise<SliceOutcome> {
+  const batch = await rankingRepo.getActiveBrawlerIdBatch(pool, cursor.brawlerCursor, batchSize);
+  if (batch.length === 0) {
+    await withTransaction(pool, (c) => writeJobCursor(c, workflowRunId, { ...cursor, phase: "matchups", brawlerCursor: null }));
+    logSafeInfo("ranking-rebuild", "phase_advance", { workflowRunId, from: "brawlers", to: "matchups" });
+    return { freshStart: false, done: false, phase: "matchups", workflowRunId, rankingRunId: cursor.rankingRunId };
+  }
+
+  const ruleSet = await requireActiveRuleSet(pool);
+  const overallFloor = ruleSet.weights["win_rate"]?.minSampleSize ?? 100;
+  const modeFloor = ruleSet.weights["mode_win_rate"]?.minSampleSize ?? 30;
+  const now = new Date(cursor.nowIso);
+
+  const computations: BrawlerComputation[] = [];
+  for (const brawlerId of batch) {
+    const rawRows = await rankingRepo.getRawParticipationRows(pool, brawlerId);
+    computations.push(computeForBrawler(brawlerId, rawRows, cursor.patchId, now, ruleSet));
+  }
+
+  await withTransaction(pool, async (c) => {
+    for (const comp of computations) {
+      const meetsFloor = comp.overallMatches >= overallFloor && comp.overallWinRate !== null;
+      const confidence: ConfidenceLabel = meetsFloor
+        ? computeOverallConfidence(comp.overallMatches, {
+            recentBattleWithin30Days: comp.recentWithin30Days,
+            distinctRegions: comp.distinctRegions,
+            distinctTrophyBrackets: comp.distinctTrophyBrackets,
+          })
+        : "insufficient";
+      await rankingRepo.insertRankingResult(c, cursor.rankingRunId, {
+        brawlerId: comp.brawlerId,
+        gameModeId: null,
+        matches: comp.overallMatches,
+        winRate: comp.overallWinRate,
+        pickRate: null,
+        highRankWinRate: comp.highRankWinRate,
+        matchupCoverage: null,
+        metaScore: null,
+        tier: null,
+        confidence,
+        meetsFloor,
       });
-      return { brawlerId: c.brawlerId, matches: c.overallMatches, winRate: c.overallWinRate, pickRate, highRankWinRate: c.highRankWinRate, matchupCoverage, metaScore, meetsFloor, confidence };
-    });
 
-    const eligibleForTiers = overallCandidates.filter((c) => c.meetsFloor && c.metaScore !== null);
-    const tiers = assignPercentileTiers(eligibleForTiers.map((c) => c.metaScore as number));
-    const tierByBrawlerId = new Map<string, Tier>();
-    eligibleForTiers.forEach((c, i) => tierByBrawlerId.set(c.brawlerId, tiers[i]));
-
-    // --- Mode scores + eligibility (per mode, percentile among Brawlers with that mode's data) ---
-    interface ModeCandidate {
-      brawlerId: string;
-      gameModeId: string;
-      matches: number;
-      winRate: number | null;
-      pickRate: number;
-      metaScore: number | null;
-      meetsFloor: boolean;
-      confidence: ConfidenceLabel;
-    }
-    const modeCandidatesByMode = new Map<string, ModeCandidate[]>();
-    for (const c of computations) {
-      for (const [modeId, mode] of c.byMode) {
-        const slotTotal = modeSlotTotals.get(modeId) ?? 0;
-        const pickRate = slotTotal > 0 ? mode.slotCount / slotTotal : 0;
-        const meetsFloor = mode.matches >= modeFloor && mode.winRate !== null;
-        const metaScore = meetsFloor ? computeModeScore({ modeWinRate: mode.winRate as number, modePickRate: pickRate }) : null;
-        const confidence = computeModeConfidence(mode.matches, {
-          recentBattleWithin30Days: c.recentWithin30Days,
-          distinctRegions: c.distinctRegions,
-          distinctTrophyBrackets: c.distinctTrophyBrackets,
-        });
-        const list = modeCandidatesByMode.get(modeId) ?? [];
-        list.push({ brawlerId: c.brawlerId, gameModeId: modeId, matches: mode.matches, winRate: mode.winRate, pickRate, metaScore, meetsFloor, confidence });
-        modeCandidatesByMode.set(modeId, list);
-      }
-    }
-    const modeTierByBrawlerAndMode = new Map<string, Tier>();
-    for (const [, list] of modeCandidatesByMode) {
-      const eligible = list.filter((c) => c.meetsFloor && c.metaScore !== null);
-      const modeTiers = assignPercentileTiers(eligible.map((c) => c.metaScore as number));
-      eligible.forEach((c, i) => modeTierByBrawlerAndMode.set(`${c.brawlerId}::${c.gameModeId}`, modeTiers[i]));
-    }
-
-    // --- Write candidate layer (ranking_results / matchup_results) in one transaction ---
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
-
-      for (const c of overallCandidates) {
-        const tier = tierByBrawlerId.get(c.brawlerId) ?? null;
-        await rankingRepo.insertRankingResult(connection, rankingRunId, {
-          brawlerId: c.brawlerId,
-          gameModeId: null,
-          matches: c.matches,
-          winRate: c.winRate,
-          pickRate: c.pickRate,
-          highRankWinRate: c.highRankWinRate,
-          matchupCoverage: c.matchupCoverage,
-          metaScore: c.metaScore,
-          tier: tier ?? null,
-          confidence: c.meetsFloor ? c.confidence : "insufficient",
-          meetsFloor: c.meetsFloor,
+      for (const [modeId, mode] of comp.byMode) {
+        const modeMeetsFloor = mode.matches >= modeFloor && mode.winRate !== null;
+        const modeConfidence: ConfidenceLabel = modeMeetsFloor
+          ? computeModeConfidence(mode.matches, {
+              recentBattleWithin30Days: comp.recentWithin30Days,
+              distinctRegions: comp.distinctRegions,
+              distinctTrophyBrackets: comp.distinctTrophyBrackets,
+            })
+          : "insufficient";
+        await rankingRepo.insertRankingResult(c, cursor.rankingRunId, {
+          brawlerId: comp.brawlerId,
+          gameModeId: modeId,
+          matches: mode.matches,
+          winRate: mode.winRate,
+          pickRate: null,
+          highRankWinRate: null,
+          matchupCoverage: null,
+          metaScore: null,
+          tier: null,
+          confidence: modeConfidence,
+          meetsFloor: modeMeetsFloor,
         });
       }
+    }
+    await writeJobCursor(c, workflowRunId, { ...cursor, brawlerCursor: batch[batch.length - 1] });
+  });
 
-      for (const [, list] of modeCandidatesByMode) {
-        for (const c of list) {
-          const tier = modeTierByBrawlerAndMode.get(`${c.brawlerId}::${c.gameModeId}`) ?? null;
-          await rankingRepo.insertRankingResult(connection, rankingRunId, {
-            brawlerId: c.brawlerId,
-            gameModeId: c.gameModeId,
-            matches: c.matches,
-            winRate: c.winRate,
-            pickRate: c.pickRate,
-            highRankWinRate: null,
-            matchupCoverage: null,
-            metaScore: c.metaScore,
-            tier: tier ?? null,
-            confidence: c.meetsFloor ? c.confidence : "insufficient",
-            meetsFloor: c.meetsFloor,
-          });
-        }
-      }
+  logSafeInfo("ranking-rebuild", "batch_processed", { workflowRunId, phase: "brawlers", brawlers: batch.length, cursor: batch[batch.length - 1] });
+  return { freshStart: false, done: false, phase: "brawlers", workflowRunId, rankingRunId: cursor.rankingRunId };
+}
 
-      for (const row of pooledMatchups) {
+async function matchupsPhase(pool: Pool, workflowRunId: string, cursor: RankingCursor, batchSize: number): Promise<SliceOutcome> {
+  const batch = await rankingRepo.getActiveBrawlerIdBatch(pool, cursor.brawlerCursor, batchSize);
+  if (batch.length === 0) {
+    await withTransaction(pool, (c) => writeJobCursor(c, workflowRunId, { ...cursor, phase: "finalize", brawlerCursor: null }));
+    logSafeInfo("ranking-rebuild", "phase_advance", { workflowRunId, from: "matchups", to: "finalize" });
+    return { freshStart: false, done: false, phase: "finalize", workflowRunId, rankingRunId: cursor.rankingRunId };
+  }
+
+  const perBrawler = new Map<string, rankingRepo.PooledMatchupRow[]>();
+  for (const brawlerId of batch) {
+    perBrawler.set(brawlerId, await rankingRepo.getPooledMatchupRowsForBrawler(pool, cursor.aggIds.matchup, brawlerId));
+  }
+
+  await withTransaction(pool, async (c) => {
+    for (const brawlerId of batch) {
+      const pooled = perBrawler.get(brawlerId) ?? [];
+      let qualifying = 0;
+      for (const row of pooled) {
         const winRate = computeWinRate(row.wins, row.losses);
         const relationship = classifyMatchup(winRate, row.matches);
-        const meetsFloor = relationship !== null;
-        // Consistency across strata is not independently derivable from the pooled figure alone at this dataset size; treated conservatively as not-yet-established, so classification never overclaims high_confidence_counter it can't actually verify.
+        if (relationship !== null) qualifying += 1;
         const confidenceLevel = computeMatchupConfidence(row.matches, false);
-        await rankingRepo.insertMatchupResult(connection, rankingRunId, {
+        await rankingRepo.insertMatchupResult(c, cursor.rankingRunId, {
           brawlerId: row.brawlerId,
           opponentBrawlerId: row.opponentBrawlerId,
           gameModeId: null,
@@ -344,141 +436,275 @@ export async function runRankingRebuild(triggeredBy: "manual" | "cron"): Promise
           winRate,
           relationship,
           confidenceLevel,
-          meetsFloor,
+          meetsFloor: relationship !== null,
         });
       }
-
-      await connection.commit();
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
+      const coverage = pooled.length > 0 ? qualifying / pooled.length : 0;
+      await rankingRepo.updateRankingResultMatchupCoverage(c, cursor.rankingRunId, brawlerId, coverage);
     }
+    await writeJobCursor(c, workflowRunId, { ...cursor, brawlerCursor: batch[batch.length - 1] });
+  });
 
-    // --- Publish decision ---
-    const isFirstRun = !(await rankingRepo.hasAnyPublishedSnapshot(pool));
-    const newTiersMap = tierByBrawlerId;
-    let tierMoveRatio = 0;
-    let comparisons: ChangeComparison[] = [];
+  logSafeInfo("ranking-rebuild", "batch_processed", { workflowRunId, phase: "matchups", brawlers: batch.length, cursor: batch[batch.length - 1] });
+  return { freshStart: false, done: false, phase: "matchups", workflowRunId, rankingRunId: cursor.rankingRunId };
+}
 
-    if (!isFirstRun) {
-      const previous = await rankingRepo.getCurrentSnapshotTierInfo(pool);
-      const previousTiersMap = new Map(previous.map((p) => [p.brawlerId, p.tier]));
-      const previousScoreMap = new Map(previous.map((p) => [p.brawlerId, p.score]));
-      tierMoveRatio = computeTierMoveRatio(previousTiersMap, newTiersMap);
-      comparisons = eligibleForTiers.map((c) => ({
-        brawlerId: c.brawlerId,
-        previousTier: previousTiersMap.get(c.brawlerId) ?? null,
-        newTier: newTiersMap.get(c.brawlerId) as Tier,
-        previousScore: previousScoreMap.get(c.brawlerId) ?? null,
-        newScore: c.metaScore as number,
-      }));
-    }
+async function finalizePhase(pool: Pool, workflowRunId: string, cursor: RankingCursor): Promise<SliceOutcome> {
+  const rows = await rankingRepo.getRankingResultsForRun(pool, cursor.rankingRunId);
+  const overallRows = rows.filter((r) => r.gameModeId === null);
+  const modeRows = rows.filter((r) => r.gameModeId !== null);
 
-    if (exceedsMassMovementGuard(tierMoveRatio, isFirstRun)) {
-      await rankingRepo.completeRankingRun(pool, rankingRunId, {
-        status: "held",
-        holdReason: "mass_movement_guard",
-        tierMoveRatio,
-        brawlersEvaluated: computations.length,
-        brawlersPublished: 0,
-      });
-      await completeWorkflowRun(pool, workflowRunId, "held", "mass_movement_guard");
-      return { outcome: "held_mass_movement", workflowRunId, rankingRunId, brawlersEvaluated: computations.length, brawlersPublished: 0, tierMoveRatio };
-    }
+  // Pick-rate denominators (Section 7.28 MVP): `matches` already equals the
+  // capped participant-slot count for each scope, so the denominator is just
+  // the sum of matches across the run's rows for that scope.
+  const overallSlotTotal = overallRows.reduce((sum, r) => sum + r.matches, 0);
+  const modeSlotTotals = new Map<string, number>();
+  for (const r of modeRows) modeSlotTotals.set(r.gameModeId as string, (modeSlotTotals.get(r.gameModeId as string) ?? 0) + r.matches);
 
-    if (!hasSignificantChange(comparisons, isFirstRun)) {
-      await rankingRepo.completeRankingRun(pool, rankingRunId, {
-        status: "succeeded",
-        holdReason: "no_significant_change",
-        tierMoveRatio,
-        brawlersEvaluated: computations.length,
-        brawlersPublished: 0,
-      });
-      await completeWorkflowRun(pool, workflowRunId, "succeeded");
-      return { outcome: "no_significant_change", workflowRunId, rankingRunId, brawlersEvaluated: computations.length, brawlersPublished: 0, tierMoveRatio };
-    }
-
-    // --- Publish (item 10) ---
-    const patchVersionLabel = activePatch?.versionLabel ?? null;
-    const dataLimitationsJson = JSON.stringify({
-      methodology: "brawlranks_internal_calculation",
-      official_supercell_methodology: false,
-      build_data: "unavailable",
-      ai_explanation: "not_implemented",
-    });
-
-    const publishConnection = await pool.getConnection();
-    let publishedCount = 0;
-    try {
-      await publishConnection.beginTransaction();
-      await rankingRepo.supersedeCurrentSnapshot(publishConnection);
-      const snapshotId = await rankingRepo.createPublishedSnapshot(publishConnection, { rankingRunId, patchId: activePatchId });
-
-      for (const c of overallCandidates) {
-        if (!c.meetsFloor || c.metaScore === null) continue;
-        const tier = tierByBrawlerId.get(c.brawlerId);
-        if (!tier) continue;
-        const modeTiers = [...(modeCandidatesByMode.entries())]
-          .filter(([, list]) => list.some((m) => m.brawlerId === c.brawlerId && m.meetsFloor))
-          .map(([modeId, list]) => {
-            const m = list.find((x) => x.brawlerId === c.brawlerId)!;
-            return { gameModeId: modeId, tier: modeTierByBrawlerAndMode.get(`${c.brawlerId}::${modeId}`), score: m.metaScore, confidence: m.confidence };
-          });
-
-        await rankingRepo.insertPublishedSnapshotItem(publishConnection, snapshotId, {
-          brawlerId: c.brawlerId,
-          overallTier: tier,
-          overallScore: c.metaScore,
-          overallConfidence: c.confidence === "insufficient" ? "low" : c.confidence,
-          modeTiersJson: JSON.stringify(modeTiers),
-          patchVersionLabel,
-          calculatedAt: now,
-          dataLimitationsJson,
-        });
-        publishedCount += 1;
-      }
-
-      for (const row of pooledMatchups) {
-        const winRate = computeWinRate(row.wins, row.losses);
-        const relationship = classifyMatchup(winRate, row.matches);
-        if (!relationship || winRate === null) continue;
-        const confidenceLevel = computeMatchupConfidence(row.matches, false);
-        if (confidenceLevel !== "probable_counter" && confidenceLevel !== "high_confidence_counter") continue;
-        await rankingRepo.insertPublishedMatchupItem(publishConnection, snapshotId, {
-          brawlerId: row.brawlerId,
-          opponentBrawlerId: row.opponentBrawlerId,
-          relationship,
-          confidenceLevel,
-          winRate,
-          sampleSize: row.matches,
-          gameModeId: null,
-          patchVersionLabel,
-        });
-      }
-
-      await publishConnection.commit();
-    } catch (error) {
-      await publishConnection.rollback();
-      throw error;
-    } finally {
-      publishConnection.release();
-    }
-
-    await rankingRepo.completeRankingRun(pool, rankingRunId, {
-      status: "succeeded",
-      tierMoveRatio,
-      brawlersEvaluated: computations.length,
-      brawlersPublished: publishedCount,
-    });
-    await completeWorkflowRun(pool, workflowRunId, "succeeded");
-
-    return { outcome: "published", workflowRunId, rankingRunId, brawlersEvaluated: computations.length, brawlersPublished: publishedCount, tierMoveRatio };
-  } catch (error) {
-    await completeWorkflowRun(pool, workflowRunId, "failed", error instanceof Error ? error.message : "unknown_error");
-    throw error;
-  } finally {
-    await releaseWorkflowLock(pool, workflowDefinitionId, workflowRunId);
+  interface Update {
+    id: string;
+    pickRate: number;
+    metaScore: number | null;
+    eligible: boolean;
+    scoreForTier: number;
   }
+
+  const overallUpdates: Update[] = overallRows.map((r) => {
+    const pickRate = overallSlotTotal > 0 ? r.matches / overallSlotTotal : 0;
+    const metaScore =
+      r.meetsFloor && r.winRate !== null
+        ? computeOverallScore({ winRate: r.winRate, pickRate, highRankWinRate: r.highRankWinRate, matchupCoverage: r.matchupCoverage })
+        : null;
+    return { id: r.id, pickRate, metaScore, eligible: r.meetsFloor && metaScore !== null, scoreForTier: metaScore ?? 0 };
+  });
+  const overallEligible = overallUpdates.filter((u) => u.eligible);
+  const overallTiers = assignPercentileTiers(overallEligible.map((u) => u.scoreForTier));
+  const overallTierById = new Map<string, Tier>();
+  overallEligible.forEach((u, i) => overallTierById.set(u.id, overallTiers[i]));
+
+  const modeUpdatesByMode = new Map<string, Update[]>();
+  for (const r of modeRows) {
+    const total = modeSlotTotals.get(r.gameModeId as string) ?? 0;
+    const pickRate = total > 0 ? r.matches / total : 0;
+    const metaScore = r.meetsFloor && r.winRate !== null ? computeModeScore({ modeWinRate: r.winRate, modePickRate: pickRate }) : null;
+    const list = modeUpdatesByMode.get(r.gameModeId as string) ?? [];
+    list.push({ id: r.id, pickRate, metaScore, eligible: r.meetsFloor && metaScore !== null, scoreForTier: metaScore ?? 0 });
+    modeUpdatesByMode.set(r.gameModeId as string, list);
+  }
+  const modeTierById = new Map<string, Tier>();
+  for (const [, list] of modeUpdatesByMode) {
+    const eligible = list.filter((u) => u.eligible);
+    const tiers = assignPercentileTiers(eligible.map((u) => u.scoreForTier));
+    eligible.forEach((u, i) => modeTierById.set(u.id, tiers[i]));
+  }
+
+  await withTransaction(pool, async (c) => {
+    for (const u of overallUpdates) {
+      await rankingRepo.updateRankingResultScoreTier(c, u.id, { pickRate: u.pickRate, metaScore: u.metaScore, tier: overallTierById.get(u.id) ?? null });
+    }
+    for (const [, list] of modeUpdatesByMode) {
+      for (const u of list) {
+        await rankingRepo.updateRankingResultScoreTier(c, u.id, { pickRate: u.pickRate, metaScore: u.metaScore, tier: modeTierById.get(u.id) ?? null });
+      }
+    }
+    await writeJobCursor(c, workflowRunId, { ...cursor, phase: "publish", brawlerCursor: null });
+  });
+
+  logSafeInfo("ranking-rebuild", "phase_advance", { workflowRunId, from: "finalize", to: "publish", overallRows: overallRows.length, modeRows: modeRows.length });
+  return { freshStart: false, done: false, phase: "publish", workflowRunId, rankingRunId: cursor.rankingRunId };
+}
+
+async function publishPhase(pool: Pool, workflowRunId: string, cursor: RankingCursor): Promise<SliceOutcome> {
+  const rankingRunId = cursor.rankingRunId;
+  const rows = await rankingRepo.getRankingResultsForRun(pool, rankingRunId);
+  const overallRows = rows.filter((r) => r.gameModeId === null);
+  const modeRowsByBrawler = new Map<string, rankingRepo.RunCandidateRow[]>();
+  for (const r of rows) {
+    if (r.gameModeId === null) continue;
+    const list = modeRowsByBrawler.get(r.brawlerId) ?? [];
+    list.push(r);
+    modeRowsByBrawler.set(r.brawlerId, list);
+  }
+
+  const brawlersEvaluated = overallRows.length;
+  const newTiers = new Map<string, Tier>();
+  for (const r of overallRows) if (r.tier) newTiers.set(r.brawlerId, r.tier);
+
+  const isFirstRun = !(await rankingRepo.hasAnyPublishedSnapshot(pool));
+  let tierMoveRatio = 0;
+  let comparisons: ChangeComparison[] = [];
+  if (!isFirstRun) {
+    const previous = await rankingRepo.getCurrentSnapshotTierInfo(pool);
+    const previousTiers = new Map(previous.map((p) => [p.brawlerId, p.tier]));
+    const previousScores = new Map(previous.map((p) => [p.brawlerId, p.score]));
+    tierMoveRatio = computeTierMoveRatio(previousTiers, newTiers);
+    comparisons = overallRows
+      .filter((r) => r.tier)
+      .map((r) => ({
+        brawlerId: r.brawlerId,
+        previousTier: previousTiers.get(r.brawlerId) ?? null,
+        newTier: r.tier as Tier,
+        previousScore: previousScores.get(r.brawlerId) ?? null,
+        newScore: r.metaScore as number,
+      }));
+  }
+
+  if (exceedsMassMovementGuard(tierMoveRatio, isFirstRun)) {
+    await rankingRepo.completeRankingRun(pool, rankingRunId, { status: "held", holdReason: "mass_movement_guard", tierMoveRatio, brawlersEvaluated, brawlersPublished: 0 });
+    await withTransaction(pool, async (c) => {
+      await writeJobCursor(c, workflowRunId, { ...cursor, phase: "done" });
+      await completeWorkflowRun(c, workflowRunId, "held", "mass_movement_guard");
+    });
+    logSafeInfo("ranking-rebuild", "job_completed", { workflowRunId, outcome: "held_mass_movement", tierMoveRatio });
+    return { freshStart: false, done: true, phase: "done", workflowRunId, rankingRunId, outcome: "held_mass_movement", brawlersEvaluated, brawlersPublished: 0, tierMoveRatio };
+  }
+
+  if (!hasSignificantChange(comparisons, isFirstRun)) {
+    await rankingRepo.completeRankingRun(pool, rankingRunId, { status: "succeeded", holdReason: "no_significant_change", tierMoveRatio, brawlersEvaluated, brawlersPublished: 0 });
+    await withTransaction(pool, async (c) => {
+      await writeJobCursor(c, workflowRunId, { ...cursor, phase: "done" });
+      await completeWorkflowRun(c, workflowRunId, "succeeded");
+    });
+    logSafeInfo("ranking-rebuild", "job_completed", { workflowRunId, outcome: "no_significant_change", tierMoveRatio });
+    return { freshStart: false, done: true, phase: "done", workflowRunId, rankingRunId, outcome: "no_significant_change", brawlersEvaluated, brawlersPublished: 0, tierMoveRatio };
+  }
+
+  const dataLimitationsJson = JSON.stringify({
+    methodology: "brawlranks_internal_calculation",
+    official_supercell_methodology: false,
+    build_data: "unavailable",
+    ai_explanation: "not_implemented",
+  });
+  const calculatedAt = new Date(cursor.nowIso);
+  const qualifyingMatchups = await rankingRepo.getQualifyingMatchupResults(pool, rankingRunId);
+
+  const publishedCount = await withTransaction(pool, async (c) => {
+    await rankingRepo.supersedeCurrentSnapshot(c);
+    const snapshotId = await rankingRepo.createPublishedSnapshot(c, { rankingRunId, patchId: cursor.patchId });
+
+    let count = 0;
+    for (const r of overallRows) {
+      if (!r.meetsFloor || r.metaScore === null || !r.tier) continue;
+      const modeTiers = (modeRowsByBrawler.get(r.brawlerId) ?? [])
+        .filter((m) => m.meetsFloor && m.tier)
+        .map((m) => ({ gameModeId: m.gameModeId, tier: m.tier, score: m.metaScore, confidence: m.confidence }));
+      await rankingRepo.insertPublishedSnapshotItem(c, snapshotId, {
+        brawlerId: r.brawlerId,
+        overallTier: r.tier,
+        overallScore: r.metaScore,
+        overallConfidence: r.confidence === "insufficient" ? "low" : r.confidence,
+        modeTiersJson: JSON.stringify(modeTiers),
+        patchVersionLabel: cursor.patchVersionLabel,
+        calculatedAt,
+        dataLimitationsJson,
+      });
+      count += 1;
+    }
+
+    for (const m of qualifyingMatchups) {
+      await rankingRepo.insertPublishedMatchupItem(c, snapshotId, {
+        brawlerId: m.brawlerId,
+        opponentBrawlerId: m.opponentBrawlerId,
+        relationship: m.relationship,
+        confidenceLevel: m.confidenceLevel,
+        winRate: m.winRate,
+        sampleSize: m.matches,
+        gameModeId: null,
+        patchVersionLabel: cursor.patchVersionLabel,
+      });
+    }
+    return count;
+  });
+
+  await rankingRepo.completeRankingRun(pool, rankingRunId, { status: "succeeded", tierMoveRatio, brawlersEvaluated, brawlersPublished: publishedCount });
+  await withTransaction(pool, async (c) => {
+    await writeJobCursor(c, workflowRunId, { ...cursor, phase: "done" });
+    await completeWorkflowRun(c, workflowRunId, "succeeded");
+  });
+  logSafeInfo("ranking-rebuild", "job_completed", { workflowRunId, outcome: "published", brawlersPublished: publishedCount, tierMoveRatio });
+  return { freshStart: false, done: true, phase: "done", workflowRunId, rankingRunId, outcome: "published", brawlersEvaluated, brawlersPublished: publishedCount, tierMoveRatio };
+}
+
+// ---------------------------------------------------------------------------
+// Entry points
+// ---------------------------------------------------------------------------
+
+/** Per-HTTP-call entry point (the cron route calls this). One bounded slice per request. */
+export async function stepRankingRebuild(
+  triggeredBy: "manual" | "cron",
+  batchSize: number = DEFAULT_RANKING_BATCH_SIZE
+): Promise<RankingStepResult> {
+  const pool = getPool();
+  const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
+  await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
+
+  const lockRunId = randomUUID();
+  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, SLICE_LOCK_TTL_MS);
+  if (!lock.acquired) {
+    return { status: "lock_not_acquired", phase: "brawlers", outcome: "lock_not_acquired" };
+  }
+
+  try {
+    const r = await executeNextRankingSlice(pool, workflowDefinitionId, triggeredBy, clampBatch(batchSize));
+    const status: RankingStepResult["status"] = r.freshStart && !r.done ? "started" : r.done ? "completed" : "in_progress";
+    return {
+      status,
+      phase: r.phase,
+      workflowRunId: r.workflowRunId,
+      rankingRunId: r.rankingRunId,
+      outcome: r.outcome,
+      brawlersEvaluated: r.brawlersEvaluated,
+      brawlersPublished: r.brawlersPublished,
+      tierMoveRatio: r.tierMoveRatio,
+    };
+  } finally {
+    await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
+  }
+}
+
+/**
+ * Run-to-completion driver: holds the lock once and loops every slice until
+ * done. Intended for tests/manual/CLI, NOT the request-limited HTTP path
+ * (use stepRankingRebuild there). Return shape unchanged from the original
+ * implementation.
+ */
+export async function runRankingRebuild(
+  triggeredBy: "manual" | "cron",
+  batchSize: number = DEFAULT_RANKING_BATCH_SIZE
+): Promise<RankingRebuildResult> {
+  const pool = getPool();
+  const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
+  await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
+
+  const lockRunId = randomUUID();
+  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, DRIVER_LOCK_TTL_MS);
+  if (!lock.acquired) {
+    return { outcome: "lock_not_acquired" };
+  }
+
+  try {
+    let last: SliceOutcome | null = null;
+    for (let i = 0; i < MAX_DRIVER_SLICES; i += 1) {
+      last = await executeNextRankingSlice(pool, workflowDefinitionId, triggeredBy, clampBatch(batchSize));
+      if (last.done) break;
+    }
+    if (!last || !last.done || !last.outcome) {
+      throw new Error("ranking driver did not converge");
+    }
+    return {
+      outcome: last.outcome,
+      workflowRunId: last.workflowRunId,
+      rankingRunId: last.rankingRunId,
+      brawlersEvaluated: last.brawlersEvaluated,
+      brawlersPublished: last.brawlersPublished,
+      tierMoveRatio: last.tierMoveRatio,
+    };
+  } finally {
+    await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
+  }
+}
+
+function clampBatch(batchSize: number): number {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) return DEFAULT_RANKING_BATCH_SIZE;
+  return Math.min(batchSize, MAX_RANKING_BATCH_SIZE);
 }
