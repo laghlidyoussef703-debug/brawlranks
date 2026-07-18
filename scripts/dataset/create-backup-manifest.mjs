@@ -13,7 +13,10 @@
  * Usage:
  *   # real artifact
  *   node scripts/dataset/create-backup-manifest.mjs <backup-file> \
- *     --source-env production --operator "Name" --out manifest.json
+ *     --source-env production-hostinger --operator "Name" --out manifest.json
+ *
+ *   --source-env takes a GENERIC LABEL only (letters, digits, hyphens).
+ *   A hostname, IP, URL, or connection string is rejected outright.
  *
  *   # template, when no artifact is available yet
  *   node scripts/dataset/create-backup-manifest.mjs --template
@@ -35,6 +38,36 @@ const FORBIDDEN_VALUE_PATTERNS = [
 ];
 
 const FORBIDDEN_KEYS = /^(password|secret|token|connection_?string|dsn|db_host|host|credential)/i;
+
+/**
+ * The only shape a source label may take: a short generic slug such as
+ * "production-hostinger". The character class alone makes a hostname, IP,
+ * URL, or connection string unrepresentable — "." ":" "/" "@" are not
+ * allowed — so the label can never smuggle an address past assertNoSecrets().
+ */
+const SAFE_SOURCE_LABEL = /^[a-z0-9][a-z0-9-]{0,47}$/i;
+
+/** Words that make a label suspicious even when its characters are legal. */
+const LABEL_FORBIDDEN_WORDS = /(password|passwd|secret|token|credential|apikey|api-key)/i;
+
+/**
+ * Normalizes and validates the operator-supplied source label. Returns the
+ * label, or throws — an unusable label must stop the run rather than silently
+ * degrade to something that might carry an address.
+ */
+export function assertSafeSourceLabel(label) {
+  if (typeof label !== "string" || !SAFE_SOURCE_LABEL.test(label)) {
+    throw new Error(
+      `Invalid --source-env "${label}". Use a short generic label such as ` +
+        `"production-hostinger" (letters, digits and hyphens only). Host addresses, ` +
+        `URLs, and connection strings are never accepted.`
+    );
+  }
+  if (LABEL_FORBIDDEN_WORDS.test(label)) {
+    throw new Error(`Invalid --source-env "${label}": a source label must not name a credential.`);
+  }
+  return label;
+}
 
 /**
  * Fails closed. A manifest that might carry a secret is never written.
@@ -70,6 +103,12 @@ export function assertNoSecrets(manifest) {
   return true;
 }
 
+/** Coarse environment class read off the label; never an address. */
+function deriveEnvironment(label) {
+  const match = /^(production|staging|development|local)/i.exec(label);
+  return match ? match[1].toLowerCase() : "unspecified";
+}
+
 function templateManifest() {
   return {
     manifestVersion: 1,
@@ -91,9 +130,11 @@ function templateManifest() {
       provider: "Hostinger shared MySQL",
       databaseName: "u350003894_brawl2",
       engine: "<fill in from the dump header, e.g. MariaDB 10.x>",
-      // Host is deliberately omitted. It is private configuration and is
-      // not needed to validate or restore a downloaded artifact.
-      hostRecorded: false,
+      // The host address is deliberately absent — not merely unrecorded.
+      // It is private configuration and is not needed to validate or
+      // restore a downloaded artifact. "label" is a generic identifier
+      // only; see assertSafeSourceLabel().
+      label: "production-hostinger",
     },
     verification: {
       verifiedWith: "scripts/dataset/verify-backup.mjs",
@@ -147,8 +188,16 @@ async function main() {
     return;
   }
 
-  const sourceEnv = args[args.indexOf("--source-env") + 1] ?? "unknown";
-  const operator = args[args.indexOf("--operator") + 1] ?? "unrecorded";
+  // indexOf returns -1 when a flag is absent, and args[-1 + 1] is args[0] —
+  // i.e. the backup path would silently become the value. Read flags only
+  // when they are actually present.
+  const flagValue = (flag) => {
+    const i = args.indexOf(flag);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+
+  const sourceLabel = assertSafeSourceLabel(flagValue("--source-env") ?? "unspecified-source");
+  const operator = flagValue("--operator") ?? "unrecorded";
 
   const result = await verifyBackup(target);
   if (!result.sha256) {
@@ -173,11 +222,11 @@ async function main() {
       encryptionMethod: null,
     },
     source: {
-      environment: sourceEnv,
+      environment: deriveEnvironment(sourceLabel),
       provider: "Hostinger shared MySQL",
       databaseName: result.detectedDatabaseName,
       engine: result.sourceServerVersion,
-      hostRecorded: false,
+      label: sourceLabel,
     },
     verification: {
       verifiedWith: "scripts/dataset/verify-backup.mjs",

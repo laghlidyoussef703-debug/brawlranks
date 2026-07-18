@@ -16,7 +16,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const REPO_ROOT = path.join(import.meta.dirname, "..");
@@ -161,6 +162,71 @@ test("manifest generator accepts a legitimate SHA-256 checksum", async () => {
   // so the exemption for checksum fields must actually work — otherwise the
   // tool could never manifest a real backup.
   assert.ok(assertNoSecrets({ backup: { sha256: "a".repeat(64) } }));
+});
+
+test("manifest generator accepts a generic source label but no address of any kind", async () => {
+  const { assertSafeSourceLabel } = await import("../scripts/dataset/create-backup-manifest.mjs");
+
+  for (const safe of ["production-hostinger", "staging", "local-docker", "unspecified-source"]) {
+    assert.equal(assertSafeSourceLabel(safe), safe, `"${safe}" is a generic label and must be accepted`);
+  }
+
+  // The label is the ONLY operator-controlled string that reaches source.*,
+  // so it is the one place a host could realistically be pasted in. Every
+  // shape that could locate or authenticate to a server must be refused.
+  for (const unsafe of [
+    "db.example.com",
+    "srv1234.hstgr.io",
+    "127.0.0.1",
+    "10.0.0.5:3306",
+    "https://panel.example.com/db",
+    "mysql://user:hunter2@dbhost/brawl2",
+    "user@dbhost",
+    "prod password=hunter2",
+    "prod-token-abc",
+    "api-key-live",
+    "secret-store",
+  ]) {
+    assert.throws(
+      () => assertSafeSourceLabel(unsafe),
+      /Invalid --source-env/,
+      `"${unsafe}" must be refused as a source label`
+    );
+  }
+});
+
+test("manifest generator emits no host field and passes its own secret scan", async () => {
+  const { assertNoSecrets } = await import("../scripts/dataset/create-backup-manifest.mjs");
+  const out = path.join(mkdtempSync(path.join(tmpdir(), "manifest-test-")), "template.json");
+
+  // Template mode is the regression case: it used to carry source.hostRecorded,
+  // whose name alone tripped the forbidden-key scan on every single run.
+  execFileSync("node", [path.join(SCRIPTS_DIR, "create-backup-manifest.mjs"), "--template", "--out", out], {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const manifest = JSON.parse(readFileSync(out, "utf8"));
+  assert.ok(assertNoSecrets(manifest), "a generated template must survive the scanner it ships with");
+  assert.ok(!("hostRecorded" in manifest.source), "source.hostRecorded must be gone, not renamed back in");
+  assert.equal(manifest.source.label, "production-hostinger");
+  assert.deepEqual(
+    Object.keys(manifest.source).filter((k) => /host/i.test(k)),
+    [],
+    "no source field may reference a host at all"
+  );
+});
+
+test("the forbidden-key scan is still strict about host-shaped keys", async () => {
+  const { assertNoSecrets } = await import("../scripts/dataset/create-backup-manifest.mjs");
+  // Fixing hostRecorded must not have been done by loosening the scanner.
+  for (const key of ["host", "hostname", "hostRecorded", "db_host", "password", "token", "secret", "dsn"]) {
+    assert.throws(
+      () => assertNoSecrets({ source: { [key]: "anything" } }),
+      /possible secret exposure/,
+      `key "${key}" must still be refused`
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
