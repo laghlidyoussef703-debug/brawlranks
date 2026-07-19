@@ -1,6 +1,13 @@
 # DATASET Phase 1 — schema and data-flow audit
 
-Status: **PARTIAL**. Everything derivable from the repository is complete. Everything requiring a live query against `u350003894_brawl2` is blocked and is listed in [Open items requiring a live query](#open-items-requiring-a-live-query).
+Status: **COMPLETE**. Everything derivable from the repository was complete
+already; the remaining live-schema items are now settled by
+**production-derived, restored-copy evidence** — an isolated MariaDB 11.8
+restore of a production Hostinger backup into `brawlranks_restoretest_20260719`
+(see `docs/dataset/evidence/`). The formerly-blocked items are resolved in
+[Open items requiring a live query](#open-items-requiring-a-live-query) below.
+This is restored-copy evidence, not a live mutable production query; nothing
+here was learned by querying production directly.
 
 This document does not authorize a migration, deletion, production write, deployment, timer change, or secret rotation. It records what the repository proves, what production evidence was supplied, and — explicitly — what neither source establishes.
 
@@ -202,23 +209,39 @@ Two details in DATASET.md's Phase 1 "Confirmed flow" do not match the code. Reco
 
 ## Open items requiring a live query
 
-Each is blocked on read-only production access. None can be resolved from this workstation.
+All ten items are now **resolved** by the July 19 2026 restored-copy evidence
+(`docs/dataset/evidence/phase1-restore-evidence.txt`, generated read-only by
+`scripts/dataset/restore-evidence.sql`) together with the owner-run
+`validate-restored-db.sql` verdicts. Restored-copy evidence is production-
+derived and is treated as [PROD] below, not [LIVE-REQUIRED].
 
-| # | Question | Query | Blocks |
-|---|---|---|---|
-| 1 | Does the live schema match the 45 declared tables? | size-report §3–6 vs `schema-inventory.mjs --json` | Phase 1 closure |
-| 2 | Do all 25 migration checksums match? | growth-report §6 | Phase 1 closure, Phase 6 gate |
-| 3 | Exactly which tables consume the 3143 MB? | size-report §3 | Phase 1 closure |
-| 4 | How many aggregate runs are retained, and how many are referenced? | size-report §8, §9 | Phase 5 policy |
-| 5 | How many held ranking runs hold candidate sets? | size-report §10 | Phase 5 policy |
-| 6 | Is `total = COUNT(DISTINCT battle_key)`? | growth-report §7 | data-integrity gate |
-| 7 | Are there orphan battle children from the earlier destructive sweep? | growth-report §8 | data-integrity gate |
-| 8 | Are there zero running workflows and zero live locks under the freeze? | growth-report §5 | any migration action |
-| 9 | What are the live `@@sql_mode`, `@@time_zone`, engine version? | size-report §1 | MySQL 8.4 gate |
-| 10 | Is there exactly one current published snapshot? | growth-report §4 | public-contract gate |
+| # | Question | Resolution ([PROD], restored copy) |
+|---|---|---|
+| 1 | Does the live schema match the 45 declared tables? | **Yes, plus one production-only table.** 47 tables observed = 45 migration tables + `schema_migrations` + `api_test_snapshots`. The 46 managed tables match the migrations exactly; `api_test_snapshots` is a legacy, fully-isolated diagnostic probe table (PK only, no FK, `BIGINT`/`TIMESTAMP`, 2 rows). |
+| 2 | Do all 25 migration checksums match? | **Yes — exact.** All 25 `schema_migrations.checksum` equal the SHA-256 of the on-disk migration files, byte-for-byte. No managed-schema drift. |
+| 3 | Exactly which tables consume the space? | Captured in evidence §10 (largest-table size summary). Ordering matches the [PROD] figures already in DATASET.md (`matchup_aggregates`, `battle_participants`, `raw_api_snapshots`, `normalized_players`, `battle_teams`, `observed_players`, `normalized_battles`). |
+| 4 | How many aggregate runs are retained / referenced? | Captured (counts §9/§12 + published→ranking→aggregation identity). Feeds Phase 5 policy; Phase 5 remains out of this work package. |
+| 5 | How many held ranking runs hold candidate sets? | Captured in workflow/ranking evidence. Feeds Phase 5 policy. |
+| 6 | Is `total = COUNT(DISTINCT battle_key)`? | **Yes.** 100,472 total / 100,472 distinct — dedupe guard intact. |
+| 7 | Orphan battle children from the earlier destructive sweep? | **None.** All orphan checks (participants/teams/observations/aggregates/ranking results) = 0. |
+| 8 | Zero running workflows and zero live locks under the freeze? | **Yes.** 0 unreleased workflow locks, 0 orphan workflow steps on the restored frozen copy. |
+| 9 | Live `@@sql_mode`, `@@time_zone`, engine version? | MariaDB `11.8.8`; `@@sql_mode = STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION` (no `ONLY_FULL_GROUP_BY`); `@@time_zone = SYSTEM`; server default collation `utf8mb4_uca1400_ai_ci` (MariaDB-only, but unused — all tables declare `utf8mb4_unicode_ci`). These feed the MySQL 8.4 gate (Phase 3). |
+| 10 | Exactly one current published snapshot? | **Yes** — 1 current snapshot with 105 items; 1 active rule set. |
 
 ## Phase 1 verdict
 
-Repository-side work is complete: schema inventory, table classification, data flow (`docs/dataset/data-flow.md`), growth analysis, retention audit, accumulation audit, and public-contract matrix, with tooling and tests.
+**COMPLETE.** Repository-side work was already complete: schema inventory, table
+classification, data flow (`docs/dataset/data-flow.md`), growth analysis,
+retention audit, accumulation audit, and public-contract matrix, with tooling
+and tests. The four items that gated closure (1–3, 9) are now answered by
+production-derived restored-copy evidence:
 
-Phase 1 **cannot be closed** until items 1–3 and 9 are answered against the live database, because DATASET.md forbids treating migrations as the live schema and forbids classifying a table's size without measuring it.
+- The managed schema matches the 25 migrations with **exact** checksums.
+- The only live/repo divergence is the **production-only `api_test_snapshots`**
+  probe table, which is isolated and carries no migration or public-API impact.
+- All data-integrity invariants (dedupe, orphan graph, single current snapshot,
+  single active rule set, no live lock) hold on the restored copy.
+- Server semantics are recorded for the Phase 3 MySQL 8.4 compatibility gate.
+
+Nothing in this closure authorizes a production change. It records evidence
+only.

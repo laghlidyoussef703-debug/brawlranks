@@ -1,0 +1,1242 @@
++-------------+---------------------------------+-----------------------+
+| section     | database_name                   | classification        |
++-------------+---------------------------------+-----------------------+
+| 00_identity | brawlranks_restoretest_20260719 | isolated_restore_copy |
++-------------+---------------------------------+-----------------------+
++----------------------------+--------+--------------------+------------+-------------+--------------+-------------+---------------------+---------------+
+| TABLE_NAME                 | ENGINE | TABLE_COLLATION    | TABLE_ROWS | DATA_LENGTH | INDEX_LENGTH | total_bytes | CREATE_TIME         | TABLE_COMMENT |
++----------------------------+--------+--------------------+------------+-------------+--------------+-------------+---------------------+---------------+
+| aggregation_runs           | InnoDB | utf8mb4_unicode_ci |         36 |       16384 |        32768 |       49152 | 2026-07-19 19:08:07 |               |
+| api_test_snapshots         | InnoDB | utf8mb4_unicode_ci |          2 |      147456 |        32768 |      180224 | 2026-07-19 19:08:07 |               |
+| battle_observations        | InnoDB | utf8mb4_unicode_ci |     140046 |    22642688 |     69255168 |    91897856 | 2026-07-19 19:08:08 |               |
+| battle_participants        | InnoDB | utf8mb4_unicode_ci |     771144 |   193986560 |    510640128 |   704626688 | 2026-07-19 19:08:13 |               |
+| battle_teams               | InnoDB | utf8mb4_unicode_ci |     434935 |    54181888 |    109887488 |   164069376 | 2026-07-19 19:16:44 |               |
+| brawler_aliases            | InnoDB | utf8mb4_unicode_ci |          0 |       16384 |        32768 |       49152 | 2026-07-19 19:16:57 |               |
+| brawler_mode_aggregates    | InnoDB | utf8mb4_unicode_ci |      19074 |     4734976 |     16433152 |    21168128 | 2026-07-19 19:16:57 |               |
+| brawler_overall_aggregates | InnoDB | utf8mb4_unicode_ci |       1260 |      245760 |       524288 |      770048 | 2026-07-19 19:16:59 |               |
+| canonical_brawlers         | InnoDB | utf8mb4_unicode_ci |        106 |       16384 |        65536 |       81920 | 2026-07-19 19:16:59 |               |
+| canonical_game_modes       | InnoDB | utf8mb4_unicode_ci |         20 |       16384 |        32768 |       49152 | 2026-07-19 19:17:00 |               |
+| canonical_maps             | InnoDB | utf8mb4_unicode_ci |        153 |       49152 |        49152 |       98304 | 2026-07-19 19:17:00 |               |
+| crawl_batches              | InnoDB | utf8mb4_unicode_ci |          0 |       16384 |        32768 |       49152 | 2026-07-19 19:17:00 |               |
+| data_fetch_runs            | InnoDB | utf8mb4_unicode_ci |      12800 |     3686400 |      9535488 |    13221888 | 2026-07-19 19:17:00 |               |
+| data_incidents             | InnoDB | utf8mb4_unicode_ci |          4 |       16384 |        65536 |       81920 | 2026-07-19 19:17:01 |               |
+| data_sources               | InnoDB | utf8mb4_unicode_ci |          1 |       16384 |        49152 |       65536 | 2026-07-19 19:17:01 |               |
+| detected_changes           | InnoDB | utf8mb4_unicode_ci |        106 |       16384 |        49152 |       65536 | 2026-07-19 19:17:01 |               |
+| gadgets                    | InnoDB | utf8mb4_unicode_ci |        212 |       65536 |        98304 |      163840 | 2026-07-19 19:17:01 |               |
+| ingestion_rate_budgets     | InnoDB | utf8mb4_unicode_ci |          6 |       16384 |        16384 |       32768 | 2026-07-19 19:17:02 |               |
+| map_aliases                | InnoDB | utf8mb4_unicode_ci |          0 |       16384 |        32768 |       49152 | 2026-07-19 19:17:02 |               |
+| matchup_aggregates         | InnoDB | utf8mb4_unicode_ci |    1013824 |   262144000 |    833126400 |  1095270400 | 2026-07-19 19:17:02 |               |
+| matchup_results            | InnoDB | utf8mb4_unicode_ci |     107478 |    24739840 |     68845568 |    93585408 | 2026-07-19 19:23:31 |               |
+| mode_aliases               | InnoDB | utf8mb4_unicode_ci |          0 |       16384 |        32768 |       49152 | 2026-07-19 19:23:36 |               |
+| normalized_battles         | InnoDB | utf8mb4_unicode_ci |      98815 |    31064064 |     77103104 |   108167168 | 2026-07-19 19:23:36 |               |
+| normalized_clubs           | InnoDB | utf8mb4_unicode_ci |        170 |       65536 |        49152 |      114688 | 2026-07-19 19:23:42 |               |
+| normalized_players         | InnoDB | utf8mb4_unicode_ci |     427190 |    69976064 |    179290112 |   249266176 | 2026-07-19 19:23:42 |               |
+| normalized_snapshots       | InnoDB | utf8mb4_unicode_ci |        318 |      180224 |       147456 |      327680 | 2026-07-19 19:23:58 |               |
+| observed_players           | InnoDB | utf8mb4_unicode_ci |     429808 |    86786048 |     57917440 |   144703488 | 2026-07-19 19:23:59 |               |
+| patches                    | InnoDB | utf8mb4_unicode_ci |          0 |       16384 |        81920 |       98304 | 2026-07-19 19:24:08 |               |
+| player_crawl_schedule      | InnoDB | utf8mb4_unicode_ci |       3538 |      507904 |      1196032 |     1703936 | 2026-07-19 19:24:08 |               |
+| player_name_history        | InnoDB | utf8mb4_unicode_ci |         36 |       16384 |        16384 |       32768 | 2026-07-19 19:24:08 |               |
+| published_matchup_items    | InnoDB | utf8mb4_unicode_ci |       5103 |     1589248 |      7651328 |     9240576 | 2026-07-19 19:24:08 |               |
+| published_snapshots        | InnoDB | utf8mb4_unicode_ci |          2 |       16384 |        49152 |       65536 | 2026-07-19 19:24:09 |               |
+| published_snapshot_items   | InnoDB | utf8mb4_unicode_ci |        210 |      163840 |       147456 |      311296 | 2026-07-19 19:24:09 |               |
+| ranking_results            | InnoDB | utf8mb4_unicode_ci |      17001 |     3686400 |     11157504 |    14843904 | 2026-07-19 19:24:09 |               |
+| ranking_rule_sets          | InnoDB | utf8mb4_unicode_ci |          1 |       16384 |        32768 |       49152 | 2026-07-19 19:24:10 |               |
+| ranking_rule_weights       | InnoDB | utf8mb4_unicode_ci |          6 |       16384 |        32768 |       49152 | 2026-07-19 19:24:11 |               |
+| ranking_runs               | InnoDB | utf8mb4_unicode_ci |         11 |       16384 |       114688 |      131072 | 2026-07-19 19:24:11 |               |
+| raw_api_snapshots          | InnoDB | utf8mb4_unicode_ci |       8742 |   347602944 |      4767744 |   352370688 | 2026-07-19 19:24:11 |               |
+| schema_migrations          | InnoDB | utf8mb4_unicode_ci |         25 |       16384 |            0 |       16384 | 2026-07-19 19:24:21 |               |
+| seed_players               | InnoDB | utf8mb4_unicode_ci |       1444 |      245760 |       491520 |      737280 | 2026-07-19 19:24:21 |               |
+| source_endpoints           | InnoDB | utf8mb4_unicode_ci |          8 |       16384 |        49152 |       65536 | 2026-07-19 19:24:22 |               |
+| star_powers                | InnoDB | utf8mb4_unicode_ci |        212 |       65536 |        98304 |      163840 | 2026-07-19 19:24:22 |               |
+| tier_thresholds            | InnoDB | utf8mb4_unicode_ci |         19 |       16384 |        49152 |       65536 | 2026-07-19 19:24:22 |               |
+| workflow_definitions       | InnoDB | utf8mb4_unicode_ci |          8 |       16384 |        32768 |       49152 | 2026-07-19 19:24:22 |               |
+| workflow_locks             | InnoDB | utf8mb4_unicode_ci |        876 |      163840 |       163840 |      327680 | 2026-07-19 19:24:22 |               |
+| workflow_runs              | InnoDB | utf8mb4_unicode_ci |        800 |      147456 |       212992 |      360448 | 2026-07-19 19:24:22 |               |
+| workflow_steps             | InnoDB | utf8mb4_unicode_ci |         11 |       16384 |        32768 |       49152 | 2026-07-19 19:24:23 |               |
++----------------------------+--------+--------------------+------------+-------------+--------------+-------------+---------------------+---------------+
++----------------------------+------------------+------------------------------+---------------------+-------------+----------------------+--------------------------------+--------------------+
+| TABLE_NAME                 | ORDINAL_POSITION | COLUMN_NAME                  | COLUMN_TYPE         | IS_NULLABLE | COLUMN_DEFAULT       | EXTRA                          | COLLATION_NAME     |
++----------------------------+------------------+------------------------------+---------------------+-------------+----------------------+--------------------------------+--------------------+
+| aggregation_runs           |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| aggregation_runs           |                2 | workflow_run_id              | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| aggregation_runs           |                3 | scope                        | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| aggregation_runs           |                4 | status                       | varchar(20)         | NO          | 'running'            |                                | utf8mb4_unicode_ci |
+| aggregation_runs           |                5 | brawlers_processed           | int(11)             | YES         | NULL                 |                                | NULL               |
+| aggregation_runs           |                6 | started_at                   | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| aggregation_runs           |                7 | completed_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| aggregation_runs           |                8 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| api_test_snapshots         |                1 | id                           | bigint(20) unsigned | NO          | NULL                 | auto_increment                 | NULL               |
+| api_test_snapshots         |                2 | source                       | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| api_test_snapshots         |                3 | endpoint                     | varchar(255)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| api_test_snapshots         |                4 | http_status                  | int(11)             | NO          | NULL                 |                                | NULL               |
+| api_test_snapshots         |                5 | payload                      | longtext            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| api_test_snapshots         |                6 | payload_hash                 | varchar(64)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| api_test_snapshots         |                7 | fetched_at                   | datetime            | NO          | NULL                 |                                | NULL               |
+| api_test_snapshots         |                8 | received_at                  | datetime            | NO          | NULL                 |                                | NULL               |
+| api_test_snapshots         |                9 | run_id                       | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| api_test_snapshots         |               10 | created_at                   | timestamp           | NO          | current_timestamp()  |                                | NULL               |
+| battle_observations        |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_observations        |                2 | battle_id                    | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_observations        |                3 | data_fetch_run_id            | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_observations        |                4 | observed_via_player_tag      | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_observations        |                5 | observed_at                  | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| battle_participants        |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_participants        |                2 | battle_id                    | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_participants        |                3 | battle_team_id               | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_participants        |                4 | player_id                    | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_participants        |                5 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_participants        |                6 | brawler_power                | int(11)             | YES         | NULL                 |                                | NULL               |
+| battle_participants        |                7 | brawler_trophies             | int(11)             | YES         | NULL                 |                                | NULL               |
+| battle_participants        |                8 | participant_index            | int(11)             | NO          | NULL                 |                                | NULL               |
+| battle_participants        |                9 | is_star_player               | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| battle_participants        |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| battle_teams               |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_teams               |                2 | battle_id                    | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| battle_teams               |                3 | team_index                   | int(11)             | NO          | NULL                 |                                | NULL               |
+| battle_teams               |                4 | result                       | varchar(10)         | NO          | 'unknown'            |                                | utf8mb4_unicode_ci |
+| battle_teams               |                5 | rank                         | int(11)             | YES         | NULL                 |                                | NULL               |
+| battle_teams               |                6 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| brawler_aliases            |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_aliases            |                2 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_aliases            |                3 | alias                        | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_aliases            |                4 | alias_type                   | varchar(20)         | NO          | 'name_history'       |                                | utf8mb4_unicode_ci |
+| brawler_aliases            |                5 | recorded_at                  | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| brawler_mode_aggregates    |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |                2 | aggregation_run_id           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |                4 | game_mode_id                 | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |                5 | patch_id                     | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |                6 | matches                      | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |                7 | wins                         | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |                8 | losses                       | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |                9 | draws                        | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |               10 | win_rate                     | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |               11 | latest_battle_at             | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |               12 | pick_rate                    | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| brawler_mode_aggregates    |               13 | rank_bracket_breakdown       | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |               14 | region_breakdown             | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |               15 | data_maturity_stage          | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_mode_aggregates    |               16 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| brawler_overall_aggregates |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_overall_aggregates |                2 | aggregation_run_id           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_overall_aggregates |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_overall_aggregates |                4 | patch_id                     | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| brawler_overall_aggregates |                5 | matches                      | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_overall_aggregates |                6 | wins                         | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_overall_aggregates |                7 | losses                       | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_overall_aggregates |                8 | draws                        | int(11)             | NO          | NULL                 |                                | NULL               |
+| brawler_overall_aggregates |                9 | win_rate                     | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| brawler_overall_aggregates |               10 | latest_battle_at             | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| brawler_overall_aggregates |               11 | mode_coverage_count          | int(11)             | NO          | 0                    |                                | NULL               |
+| brawler_overall_aggregates |               12 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| canonical_brawlers         |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_brawlers         |                2 | source_brawler_id            | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_brawlers         |                3 | slug                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_brawlers         |                4 | name                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_brawlers         |                5 | is_active                    | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| canonical_brawlers         |                6 | first_seen_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| canonical_brawlers         |                7 | last_seen_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| canonical_brawlers         |                8 | deactivated_at               | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| canonical_brawlers         |                9 | last_fetch_run_id            | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_brawlers         |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| canonical_brawlers         |               11 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| canonical_game_modes       |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_game_modes       |                2 | source_mode_id               | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_game_modes       |                3 | name                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_game_modes       |                4 | is_active                    | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| canonical_game_modes       |                5 | first_seen_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| canonical_game_modes       |                6 | last_seen_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| canonical_game_modes       |                7 | deactivated_at               | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| canonical_game_modes       |                8 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| canonical_game_modes       |                9 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| canonical_maps             |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_maps             |                2 | source_map_id                | varchar(150)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_maps             |                3 | name                         | varchar(150)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_maps             |                4 | game_mode_id                 | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| canonical_maps             |                5 | is_active                    | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| canonical_maps             |                6 | first_seen_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| canonical_maps             |                7 | last_seen_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| canonical_maps             |                8 | deactivated_at               | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| canonical_maps             |                9 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| canonical_maps             |               10 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| crawl_batches              |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| crawl_batches              |                2 | workflow_run_id              | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| crawl_batches              |                3 | batch_type                   | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| crawl_batches              |                4 | requested_size               | int(11)             | NO          | NULL                 |                                | NULL               |
+| crawl_batches              |                5 | selected_count               | int(11)             | NO          | 0                    |                                | NULL               |
+| crawl_batches              |                6 | succeeded_count              | int(11)             | NO          | 0                    |                                | NULL               |
+| crawl_batches              |                7 | failed_count                 | int(11)             | NO          | 0                    |                                | NULL               |
+| crawl_batches              |                8 | started_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| crawl_batches              |                9 | completed_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| crawl_batches              |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| data_fetch_runs            |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                2 | data_source_id               | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                3 | source_endpoint_id           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                4 | workflow_run_id              | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                5 | retry_of_fetch_run_id        | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                6 | trigger_type                 | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                7 | request_context              | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                8 | status                       | varchar(20)         | NO          | 'pending'            |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |                9 | http_status                  | int(11)             | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               10 | attempt_count                | int(11)             | NO          | 1                    |                                | NULL               |
+| data_fetch_runs            |               11 | started_at                   | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| data_fetch_runs            |               12 | fetched_at                   | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               13 | received_at                  | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               14 | completed_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               15 | next_attempt_at              | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               16 | duration_ms                  | int(11)             | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               17 | schema_version               | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |               18 | error_code                   | varchar(50)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |               19 | error_message                | varchar(500)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |               20 | retry_reason                 | varchar(50)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_fetch_runs            |               21 | records_fetched              | int(11)             | YES         | NULL                 |                                | NULL               |
+| data_fetch_runs            |               22 | changes_detected_count       | int(11)             | NO          | 0                    |                                | NULL               |
+| data_fetch_runs            |               23 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| data_fetch_runs            |               24 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| data_incidents             |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                2 | incident_type                | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                3 | data_category                | varchar(30)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                4 | related_fetch_run_id         | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                5 | related_entity_type          | varchar(50)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                6 | related_entity_id            | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                7 | detail                       | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                8 | signature                    | char(64)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_incidents             |                9 | occurrence_count             | int(11)             | NO          | 1                    |                                | NULL               |
+| data_incidents             |               10 | last_seen_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| data_incidents             |               11 | status                       | varchar(20)         | NO          | 'open'               |                                | utf8mb4_unicode_ci |
+| data_incidents             |               12 | resolved_at                  | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| data_incidents             |               13 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| data_sources               |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_sources               |                2 | name                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_sources               |                3 | source_type                  | varchar(30)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| data_sources               |                4 | reliability_weight           | decimal(4,3)        | NO          | 1.000                |                                | NULL               |
+| data_sources               |                5 | priority_rank                | int(11)             | NO          | 100                  |                                | NULL               |
+| data_sources               |                6 | is_enabled                   | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| data_sources               |                7 | credentials_ref              | varchar(255)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_sources               |                8 | config                       | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| data_sources               |                9 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| data_sources               |               10 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| detected_changes           |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                2 | data_fetch_run_id            | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                3 | entity_type                  | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                4 | entity_id                    | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                5 | change_type                  | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                6 | field                        | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                7 | old_value                    | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                8 | new_value                    | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| detected_changes           |                9 | severity                     | varchar(20)         | NO          | 'info'               |                                | utf8mb4_unicode_ci |
+| detected_changes           |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| gadgets                    |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| gadgets                    |                2 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| gadgets                    |                3 | source_gadget_id             | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| gadgets                    |                4 | name                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| gadgets                    |                5 | is_active                    | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| gadgets                    |                6 | first_seen_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| gadgets                    |                7 | last_seen_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| gadgets                    |                8 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| gadgets                    |                9 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| ingestion_rate_budgets     |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ingestion_rate_budgets     |                2 | budget_scope                 | varchar(30)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ingestion_rate_budgets     |                3 | window_started_at            | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| ingestion_rate_budgets     |                4 | window_seconds               | int(11)             | NO          | NULL                 |                                | NULL               |
+| ingestion_rate_budgets     |                5 | request_ceiling              | int(11)             | NO          | NULL                 |                                | NULL               |
+| ingestion_rate_budgets     |                6 | reserved_for_priority        | int(11)             | NO          | 0                    |                                | NULL               |
+| ingestion_rate_budgets     |                7 | requests_used                | int(11)             | NO          | 0                    |                                | NULL               |
+| ingestion_rate_budgets     |                8 | last_429_at                  | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| ingestion_rate_budgets     |                9 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| ingestion_rate_budgets     |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| map_aliases                |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| map_aliases                |                2 | map_id                       | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| map_aliases                |                3 | alias                        | varchar(150)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| map_aliases                |                4 | alias_type                   | varchar(20)         | NO          | 'name_history'       |                                | utf8mb4_unicode_ci |
+| map_aliases                |                5 | recorded_at                  | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| matchup_aggregates         |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |                2 | aggregation_run_id           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |                4 | opponent_brawler_id          | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |                5 | game_mode_id                 | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |                6 | patch_id                     | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |                7 | matches                      | int(11)             | NO          | NULL                 |                                | NULL               |
+| matchup_aggregates         |                8 | wins                         | int(11)             | YES         | NULL                 |                                | NULL               |
+| matchup_aggregates         |                9 | losses                       | int(11)             | YES         | NULL                 |                                | NULL               |
+| matchup_aggregates         |               10 | win_rate                     | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| matchup_aggregates         |               11 | latest_battle_at             | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| matchup_aggregates         |               12 | confidence_level             | varchar(30)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_aggregates         |               13 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| matchup_results            |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |                2 | ranking_run_id               | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |                4 | opponent_brawler_id          | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |                5 | game_mode_id                 | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |                6 | matches                      | int(11)             | NO          | NULL                 |                                | NULL               |
+| matchup_results            |                7 | win_rate                     | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| matchup_results            |                8 | relationship                 | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |                9 | confidence_level             | varchar(30)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| matchup_results            |               10 | meets_floor                  | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| matchup_results            |               11 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| mode_aliases               |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| mode_aliases               |                2 | game_mode_id                 | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| mode_aliases               |                3 | alias                        | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| mode_aliases               |                4 | alias_type                   | varchar(20)         | NO          | 'name_history'       |                                | utf8mb4_unicode_ci |
+| mode_aliases               |                5 | recorded_at                  | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| normalized_battles         |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                2 | battle_key                   | char(64)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                3 | game_mode_id                 | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                4 | map_id                       | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                5 | event_source_id              | varchar(50)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                6 | battle_type                  | varchar(30)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                7 | structure                    | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |                8 | occurred_at                  | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| normalized_battles         |                9 | duration_seconds             | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_battles         |               10 | trophy_change                | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_battles         |               11 | patch_id                     | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |               12 | first_observed_fetch_run_id  | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_battles         |               13 | first_observed_at            | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| normalized_battles         |               14 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| normalized_clubs           |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_clubs           |                2 | club_tag                     | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_clubs           |                3 | name                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_clubs           |                4 | description                  | varchar(500)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_clubs           |                5 | club_type                    | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_clubs           |                6 | trophies                     | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_clubs           |                7 | required_trophies            | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_clubs           |                8 | member_count                 | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_clubs           |                9 | last_synced_at               | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| normalized_clubs           |               10 | last_fetch_run_id            | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_clubs           |               11 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| normalized_clubs           |               12 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| normalized_players         |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |                2 | player_tag                   | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |                3 | display_name                 | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |                4 | name_color                   | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |                5 | trophies                     | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_players         |                6 | highest_trophies             | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_players         |                7 | exp_level                    | int(11)             | YES         | NULL                 |                                | NULL               |
+| normalized_players         |                8 | club_id                      | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |                9 | pending_club_tag             | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |               10 | region                       | varchar(10)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |               11 | is_reachable                 | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| normalized_players         |               12 | unreachable_reason           | varchar(50)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |               13 | first_seen_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| normalized_players         |               14 | last_seen_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| normalized_players         |               15 | last_fetch_run_id            | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_players         |               16 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| normalized_players         |               17 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| normalized_snapshots       |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_snapshots       |                2 | data_fetch_run_id            | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_snapshots       |                3 | entity_type                  | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_snapshots       |                4 | entity_id                    | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_snapshots       |                5 | normalized_payload           | longtext            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_snapshots       |                6 | payload_checksum             | char(64)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| normalized_snapshots       |                7 | is_accepted                  | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| normalized_snapshots       |                8 | accepted_flag                | tinyint(4)          | YES         | NULL                 | STORED GENERATED               | NULL               |
+| normalized_snapshots       |                9 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| observed_players           |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| observed_players           |                2 | player_tag                   | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| observed_players           |                3 | first_observed_at            | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| observed_players           |                4 | source_type                  | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| observed_players           |                5 | source_detail                | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| observed_players           |                6 | promoted_to_active           | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| observed_players           |                7 | promoted_at                  | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| observed_players           |                8 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| patches                    |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| patches                    |                2 | version_label                | varchar(64)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| patches                    |                3 | source                       | varchar(40)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| patches                    |                4 | status                       | varchar(20)         | NO          | 'active'             |                                | utf8mb4_unicode_ci |
+| patches                    |                5 | detected_at                  | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| patches                    |                6 | effective_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| patches                    |                7 | triggering_fetch_run_id      | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| patches                    |                8 | triggering_change_summary    | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| patches                    |                9 | active_flag                  | tinyint(4)          | YES         | NULL                 | STORED GENERATED               | NULL               |
+| patches                    |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| player_crawl_schedule      |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| player_crawl_schedule      |                2 | player_tag                   | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| player_crawl_schedule      |                3 | priority_score               | decimal(10,4)       | NO          | 0.0000               |                                | NULL               |
+| player_crawl_schedule      |                4 | next_due_at                  | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| player_crawl_schedule      |                5 | last_crawled_at              | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| player_crawl_schedule      |                6 | consecutive_failure_count    | int(11)             | NO          | 0                    |                                | NULL               |
+| player_crawl_schedule      |                7 | backoff_until                | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| player_crawl_schedule      |                8 | is_active                    | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| player_crawl_schedule      |                9 | region                       | varchar(10)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| player_crawl_schedule      |               10 | trophy_bracket               | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| player_crawl_schedule      |               11 | stratum_source               | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| player_crawl_schedule      |               12 | leased_by_run_id             | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| player_crawl_schedule      |               13 | lease_expires_at             | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| player_crawl_schedule      |               14 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| player_crawl_schedule      |               15 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| player_name_history        |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| player_name_history        |                2 | player_id                    | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| player_name_history        |                3 | previous_name                | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| player_name_history        |                4 | recorded_at                  | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| published_matchup_items    |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |                2 | published_snapshot_id        | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |                4 | opponent_brawler_id          | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |                5 | relationship                 | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |                6 | confidence_level             | varchar(30)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |                7 | win_rate                     | decimal(6,5)        | NO          | NULL                 |                                | NULL               |
+| published_matchup_items    |                8 | sample_size                  | int(11)             | NO          | NULL                 |                                | NULL               |
+| published_matchup_items    |                9 | game_mode_id                 | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| published_matchup_items    |               10 | patch_version_label          | varchar(64)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshots        |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshots        |                2 | ranking_run_id               | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshots        |                3 | patch_id                     | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshots        |                4 | is_current                   | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| published_snapshots        |                5 | current_flag                 | tinyint(4)          | YES         | NULL                 | STORED GENERATED               | NULL               |
+| published_snapshots        |                6 | published_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| published_snapshots        |                7 | superseded_at                | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| published_snapshot_items   |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                2 | published_snapshot_id        | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                4 | overall_tier                 | varchar(1)          | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                5 | overall_score                | decimal(6,2)        | NO          | NULL                 |                                | NULL               |
+| published_snapshot_items   |                6 | overall_confidence           | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                7 | mode_tiers                   | longtext            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                8 | patch_version_label          | varchar(64)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| published_snapshot_items   |                9 | calculated_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| published_snapshot_items   |               10 | published_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| published_snapshot_items   |               11 | data_limitations             | longtext            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |                2 | ranking_run_id               | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |                3 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |                4 | game_mode_id                 | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |                5 | matches                      | int(11)             | NO          | NULL                 |                                | NULL               |
+| ranking_results            |                6 | win_rate                     | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| ranking_results            |                7 | pick_rate                    | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| ranking_results            |                8 | high_rank_win_rate           | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| ranking_results            |                9 | matchup_coverage             | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| ranking_results            |               10 | meta_score                   | decimal(6,2)        | YES         | NULL                 |                                | NULL               |
+| ranking_results            |               11 | tier                         | varchar(1)          | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |               12 | confidence                   | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_results            |               13 | meets_floor                  | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| ranking_results            |               14 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| ranking_rule_sets          |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_sets          |                2 | version                      | int(11)             | NO          | NULL                 |                                | NULL               |
+| ranking_rule_sets          |                3 | description                  | varchar(500)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_sets          |                4 | is_active                    | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| ranking_rule_sets          |                5 | activated_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| ranking_rule_sets          |                6 | created_by                   | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_sets          |                7 | active_flag                  | tinyint(4)          | YES         | NULL                 | STORED GENERATED               | NULL               |
+| ranking_rule_sets          |                8 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| ranking_rule_weights       |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_weights       |                2 | ranking_rule_set_id          | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_weights       |                3 | signal_name                  | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_weights       |                4 | weight                       | decimal(10,6)       | NO          | NULL                 |                                | NULL               |
+| ranking_rule_weights       |                5 | min_sample_size              | int(11)             | YES         | NULL                 |                                | NULL               |
+| ranking_rule_weights       |                6 | extra_config                 | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_rule_weights       |                7 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| ranking_runs               |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                2 | workflow_run_id              | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                3 | ranking_rule_set_id          | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                4 | mode_aggregation_run_id      | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                5 | overall_aggregation_run_id   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                6 | matchup_aggregation_run_id   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                7 | patch_id                     | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                8 | status                       | varchar(20)         | NO          | 'running'            |                                | utf8mb4_unicode_ci |
+| ranking_runs               |                9 | hold_reason                  | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| ranking_runs               |               10 | tier_move_ratio              | decimal(6,5)        | YES         | NULL                 |                                | NULL               |
+| ranking_runs               |               11 | brawlers_evaluated           | int(11)             | YES         | NULL                 |                                | NULL               |
+| ranking_runs               |               12 | brawlers_published           | int(11)             | YES         | NULL                 |                                | NULL               |
+| ranking_runs               |               13 | started_at                   | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| ranking_runs               |               14 | completed_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| ranking_runs               |               15 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| raw_api_snapshots          |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| raw_api_snapshots          |                2 | data_fetch_run_id            | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| raw_api_snapshots          |                3 | endpoint_category            | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| raw_api_snapshots          |                4 | payload                      | longtext            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| raw_api_snapshots          |                5 | checksum                     | char(64)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| raw_api_snapshots          |                6 | http_status                  | int(11)             | YES         | NULL                 |                                | NULL               |
+| raw_api_snapshots          |                7 | source_reported_at           | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| raw_api_snapshots          |                8 | received_at                  | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| raw_api_snapshots          |                9 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| schema_migrations          |                1 | version                      | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| schema_migrations          |                2 | name                         | varchar(255)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| schema_migrations          |                3 | checksum                     | char(64)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| schema_migrations          |                4 | applied_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| schema_migrations          |                5 | execution_ms                 | int(11)             | YES         | NULL                 |                                | NULL               |
+| seed_players               |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| seed_players               |                2 | player_tag                   | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| seed_players               |                3 | seed_source                  | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| seed_players               |                4 | region                       | varchar(10)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| seed_players               |                5 | trophy_bracket               | varchar(20)         | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| seed_players               |                6 | latest_rank                  | int(11)             | YES         | NULL                 |                                | NULL               |
+| seed_players               |                7 | latest_trophies              | int(11)             | YES         | NULL                 |                                | NULL               |
+| seed_players               |                8 | last_observed_at             | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| seed_players               |                9 | is_stale                     | tinyint(1)          | NO          | 0                    |                                | NULL               |
+| seed_players               |               10 | added_at                     | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| seed_players               |               11 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| seed_players               |               12 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| source_endpoints           |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| source_endpoints           |                2 | data_source_id               | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| source_endpoints           |                3 | endpoint_category            | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| source_endpoints           |                4 | path                         | varchar(255)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| source_endpoints           |                5 | method                       | varchar(10)         | NO          | 'GET'                |                                | utf8mb4_unicode_ci |
+| source_endpoints           |                6 | schema_version               | varchar(20)         | NO          | 'v1'                 |                                | utf8mb4_unicode_ci |
+| source_endpoints           |                7 | is_enabled                   | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| source_endpoints           |                8 | verified_at                  | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| source_endpoints           |                9 | verified_against_doc_version | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| source_endpoints           |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| source_endpoints           |               11 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| star_powers                |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| star_powers                |                2 | brawler_id                   | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| star_powers                |                3 | source_star_power_id         | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| star_powers                |                4 | name                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| star_powers                |                5 | is_active                    | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| star_powers                |                6 | first_seen_at                | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| star_powers                |                7 | last_seen_at                 | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| star_powers                |                8 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| star_powers                |                9 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| tier_thresholds            |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| tier_thresholds            |                2 | ranking_rule_set_id          | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| tier_thresholds            |                3 | mode_scope                   | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| tier_thresholds            |                4 | threshold_type               | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| tier_thresholds            |                5 | s_cutoff                     | decimal(10,4)       | NO          | NULL                 |                                | NULL               |
+| tier_thresholds            |                6 | a_cutoff                     | decimal(10,4)       | NO          | NULL                 |                                | NULL               |
+| tier_thresholds            |                7 | b_cutoff                     | decimal(10,4)       | NO          | NULL                 |                                | NULL               |
+| tier_thresholds            |                8 | c_cutoff                     | decimal(10,4)       | NO          | NULL                 |                                | NULL               |
+| tier_thresholds            |                9 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| workflow_definitions       |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_definitions       |                2 | slug                         | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_definitions       |                3 | workflow_type                | varchar(50)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_definitions       |                4 | schedule                     | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_definitions       |                5 | is_enabled                   | tinyint(1)          | NO          | 1                    |                                | NULL               |
+| workflow_definitions       |                6 | retry_policy                 | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_definitions       |                7 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| workflow_definitions       |                8 | updated_at                   | datetime(3)         | NO          | current_timestamp(3) | on update current_timestamp(3) | NULL               |
+| workflow_locks             |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_locks             |                2 | workflow_definition_id       | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_locks             |                3 | locked_at                    | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| workflow_locks             |                4 | locked_by_run_id             | char(36)            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_locks             |                5 | expires_at                   | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| workflow_locks             |                6 | released_at                  | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| workflow_locks             |                7 | active_flag                  | tinyint(4)          | YES         | NULL                 | STORED GENERATED               | NULL               |
+| workflow_runs              |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_runs              |                2 | workflow_definition_id       | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_runs              |                3 | status                       | varchar(32)         | NO          | 'running'            |                                | utf8mb4_unicode_ci |
+| workflow_runs              |                4 | triggered_by                 | varchar(20)         | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_runs              |                5 | triggered_by_actor           | varchar(100)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_runs              |                6 | started_at                   | datetime(3)         | NO          | NULL                 |                                | NULL               |
+| workflow_runs              |                7 | completed_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| workflow_runs              |                8 | error_summary                | varchar(500)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_runs              |                9 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
+| workflow_steps             |                1 | id                           | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_steps             |                2 | workflow_run_id              | char(36)            | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_steps             |                3 | step_name                    | varchar(100)        | NO          | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_steps             |                4 | step_order                   | int(11)             | NO          | NULL                 |                                | NULL               |
+| workflow_steps             |                5 | status                       | varchar(20)         | NO          | 'pending'            |                                | utf8mb4_unicode_ci |
+| workflow_steps             |                6 | started_at                   | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| workflow_steps             |                7 | completed_at                 | datetime(3)         | YES         | NULL                 |                                | NULL               |
+| workflow_steps             |                8 | output_summary               | longtext            | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_steps             |                9 | error_detail                 | varchar(500)        | YES         | NULL                 |                                | utf8mb4_unicode_ci |
+| workflow_steps             |               10 | created_at                   | datetime(3)         | NO          | current_timestamp(3) |                                | NULL               |
++----------------------------+------------------+------------------------------+---------------------+-------------+----------------------+--------------------------------+--------------------+
++----------------------------+---------------------------------------+-----------------------------+-----------------------+------------------------+-------------+-------------+
+| TABLE_NAME                 | CONSTRAINT_NAME                       | COLUMN_NAME                 | REFERENCED_TABLE_NAME | REFERENCED_COLUMN_NAME | UPDATE_RULE | DELETE_RULE |
++----------------------------+---------------------------------------+-----------------------------+-----------------------+------------------------+-------------+-------------+
+| aggregation_runs           | fk_aggregation_runs_workflow_run      | workflow_run_id             | workflow_runs         | id                     | RESTRICT    | RESTRICT    |
+| battle_observations        | fk_battle_observations_battle         | battle_id                   | normalized_battles    | id                     | RESTRICT    | RESTRICT    |
+| battle_observations        | fk_battle_observations_fetch_run      | data_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| battle_participants        | fk_battle_participants_battle         | battle_id                   | normalized_battles    | id                     | RESTRICT    | RESTRICT    |
+| battle_participants        | fk_battle_participants_brawler        | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| battle_participants        | fk_battle_participants_player         | player_id                   | normalized_players    | id                     | RESTRICT    | RESTRICT    |
+| battle_participants        | fk_battle_participants_team           | battle_team_id              | battle_teams          | id                     | RESTRICT    | RESTRICT    |
+| battle_teams               | fk_battle_teams_battle                | battle_id                   | normalized_battles    | id                     | RESTRICT    | RESTRICT    |
+| brawler_aliases            | fk_brawler_aliases_brawler            | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_brawler    | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_mode       | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_patch      | patch_id                    | patches               | id                     | RESTRICT    | RESTRICT    |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_run        | aggregation_run_id          | aggregation_runs      | id                     | RESTRICT    | RESTRICT    |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_brawler | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_patch   | patch_id                    | patches               | id                     | RESTRICT    | RESTRICT    |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_run     | aggregation_run_id          | aggregation_runs      | id                     | RESTRICT    | RESTRICT    |
+| canonical_brawlers         | fk_canonical_brawlers_last_fetch_run  | last_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| canonical_maps             | fk_canonical_maps_game_mode           | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| crawl_batches              | fk_crawl_batches_workflow_run         | workflow_run_id             | workflow_runs         | id                     | RESTRICT    | RESTRICT    |
+| data_fetch_runs            | fk_data_fetch_runs_endpoint           | source_endpoint_id          | source_endpoints      | id                     | RESTRICT    | RESTRICT    |
+| data_fetch_runs            | fk_data_fetch_runs_retry_of           | retry_of_fetch_run_id       | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| data_fetch_runs            | fk_data_fetch_runs_source             | data_source_id              | data_sources          | id                     | RESTRICT    | RESTRICT    |
+| data_fetch_runs            | fk_data_fetch_runs_workflow_run       | workflow_run_id             | workflow_runs         | id                     | RESTRICT    | RESTRICT    |
+| data_incidents             | fk_data_incidents_fetch_run           | related_fetch_run_id        | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| detected_changes           | fk_detected_changes_fetch_run         | data_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| gadgets                    | fk_gadgets_brawler                    | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| map_aliases                | fk_map_aliases_map                    | map_id                      | canonical_maps        | id                     | RESTRICT    | RESTRICT    |
+| matchup_aggregates         | fk_matchup_aggregates_brawler         | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| matchup_aggregates         | fk_matchup_aggregates_mode            | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| matchup_aggregates         | fk_matchup_aggregates_opponent        | opponent_brawler_id         | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| matchup_aggregates         | fk_matchup_aggregates_patch           | patch_id                    | patches               | id                     | RESTRICT    | RESTRICT    |
+| matchup_aggregates         | fk_matchup_aggregates_run             | aggregation_run_id          | aggregation_runs      | id                     | RESTRICT    | RESTRICT    |
+| matchup_results            | fk_matchup_results_brawler            | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| matchup_results            | fk_matchup_results_mode               | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| matchup_results            | fk_matchup_results_opponent           | opponent_brawler_id         | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| matchup_results            | fk_matchup_results_run                | ranking_run_id              | ranking_runs          | id                     | RESTRICT    | RESTRICT    |
+| mode_aliases               | fk_mode_aliases_mode                  | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| normalized_battles         | fk_normalized_battles_fetch_run       | first_observed_fetch_run_id | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| normalized_battles         | fk_normalized_battles_game_mode       | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| normalized_battles         | fk_normalized_battles_map             | map_id                      | canonical_maps        | id                     | RESTRICT    | RESTRICT    |
+| normalized_battles         | fk_normalized_battles_patch           | patch_id                    | patches               | id                     | RESTRICT    | RESTRICT    |
+| normalized_clubs           | fk_normalized_clubs_fetch_run         | last_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| normalized_players         | fk_normalized_players_club            | club_id                     | normalized_clubs      | id                     | RESTRICT    | RESTRICT    |
+| normalized_players         | fk_normalized_players_fetch_run       | last_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| normalized_snapshots       | fk_normalized_snapshots_fetch_run     | data_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| patches                    | fk_patches_triggering_fetch_run       | triggering_fetch_run_id     | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| player_name_history        | fk_player_name_history_player         | player_id                   | normalized_players    | id                     | RESTRICT    | RESTRICT    |
+| published_matchup_items    | fk_published_matchup_items_brawler    | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| published_matchup_items    | fk_published_matchup_items_mode       | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| published_matchup_items    | fk_published_matchup_items_opponent   | opponent_brawler_id         | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| published_matchup_items    | fk_published_matchup_items_snapshot   | published_snapshot_id       | published_snapshots   | id                     | RESTRICT    | RESTRICT    |
+| published_snapshots        | fk_published_snapshots_patch          | patch_id                    | patches               | id                     | RESTRICT    | RESTRICT    |
+| published_snapshots        | fk_published_snapshots_run            | ranking_run_id              | ranking_runs          | id                     | RESTRICT    | RESTRICT    |
+| published_snapshot_items   | fk_published_snapshot_items_brawler   | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| published_snapshot_items   | fk_published_snapshot_items_snapshot  | published_snapshot_id       | published_snapshots   | id                     | RESTRICT    | RESTRICT    |
+| ranking_results            | fk_ranking_results_brawler            | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| ranking_results            | fk_ranking_results_mode               | game_mode_id                | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| ranking_results            | fk_ranking_results_run                | ranking_run_id              | ranking_runs          | id                     | RESTRICT    | RESTRICT    |
+| ranking_rule_weights       | fk_ranking_rule_weights_set           | ranking_rule_set_id         | ranking_rule_sets     | id                     | RESTRICT    | RESTRICT    |
+| ranking_runs               | fk_ranking_runs_matchup_agg           | matchup_aggregation_run_id  | aggregation_runs      | id                     | RESTRICT    | RESTRICT    |
+| ranking_runs               | fk_ranking_runs_mode_agg              | mode_aggregation_run_id     | aggregation_runs      | id                     | RESTRICT    | RESTRICT    |
+| ranking_runs               | fk_ranking_runs_overall_agg           | overall_aggregation_run_id  | aggregation_runs      | id                     | RESTRICT    | RESTRICT    |
+| ranking_runs               | fk_ranking_runs_patch                 | patch_id                    | patches               | id                     | RESTRICT    | RESTRICT    |
+| ranking_runs               | fk_ranking_runs_rule_set              | ranking_rule_set_id         | ranking_rule_sets     | id                     | RESTRICT    | RESTRICT    |
+| ranking_runs               | fk_ranking_runs_workflow_run          | workflow_run_id             | workflow_runs         | id                     | RESTRICT    | RESTRICT    |
+| raw_api_snapshots          | fk_raw_api_snapshots_fetch_run        | data_fetch_run_id           | data_fetch_runs       | id                     | RESTRICT    | RESTRICT    |
+| source_endpoints           | fk_source_endpoints_data_source       | data_source_id              | data_sources          | id                     | RESTRICT    | RESTRICT    |
+| star_powers                | fk_star_powers_brawler                | brawler_id                  | canonical_brawlers    | id                     | RESTRICT    | RESTRICT    |
+| tier_thresholds            | fk_tier_thresholds_mode               | mode_scope                  | canonical_game_modes  | id                     | RESTRICT    | RESTRICT    |
+| tier_thresholds            | fk_tier_thresholds_set                | ranking_rule_set_id         | ranking_rule_sets     | id                     | RESTRICT    | RESTRICT    |
+| workflow_locks             | fk_workflow_locks_definition          | workflow_definition_id      | workflow_definitions  | id                     | RESTRICT    | RESTRICT    |
+| workflow_runs              | fk_workflow_runs_definition           | workflow_definition_id      | workflow_definitions  | id                     | RESTRICT    | RESTRICT    |
+| workflow_steps             | fk_workflow_steps_run                 | workflow_run_id             | workflow_runs         | id                     | RESTRICT    | RESTRICT    |
++----------------------------+---------------------------------------+-----------------------------+-----------------------+------------------------+-------------+-------------+
++----------------------------+------------------------------------------+------------+--------------+-----------------------------+-------------+------------+
+| TABLE_NAME                 | INDEX_NAME                               | NON_UNIQUE | SEQ_IN_INDEX | COLUMN_NAME                 | CARDINALITY | INDEX_TYPE |
++----------------------------+------------------------------------------+------------+--------------+-----------------------------+-------------+------------+
+| aggregation_runs           | idx_aggregation_runs_started_at          |          1 |            1 | started_at                  |          36 | BTREE      |
+| aggregation_runs           | idx_aggregation_runs_workflow_run_id     |          1 |            1 | workflow_run_id             |          12 | BTREE      |
+| aggregation_runs           | PRIMARY                                  |          0 |            1 | id                          |          36 | BTREE      |
+| api_test_snapshots         | idx_created_at                           |          1 |            1 | created_at                  |           2 | BTREE      |
+| api_test_snapshots         | idx_run_id                               |          1 |            1 | run_id                      |           2 | BTREE      |
+| api_test_snapshots         | PRIMARY                                  |          0 |            1 | id                          |           2 | BTREE      |
+| battle_observations        | idx_battle_observations_battle_id        |          1 |            1 | battle_id                   |      140046 | BTREE      |
+| battle_observations        | idx_battle_observations_fetch_run_id     |          1 |            1 | data_fetch_run_id           |        5835 | BTREE      |
+| battle_observations        | PRIMARY                                  |          0 |            1 | id                          |      140046 | BTREE      |
+| battle_observations        | uniq_battle_observations_battle_run      |          0 |            1 | battle_id                   |      140046 | BTREE      |
+| battle_observations        | uniq_battle_observations_battle_run      |          0 |            2 | data_fetch_run_id           |      140046 | BTREE      |
+| battle_participants        | fk_battle_participants_team              |          1 |            1 | battle_team_id              |      771144 | BTREE      |
+| battle_participants        | idx_battle_participants_battle_id        |          1 |            1 | battle_id                   |      110163 | BTREE      |
+| battle_participants        | idx_battle_participants_brawler_id       |          1 |            1 | brawler_id                  |        3240 | BTREE      |
+| battle_participants        | idx_battle_participants_player_id        |          1 |            1 | player_id                   |      771144 | BTREE      |
+| battle_participants        | PRIMARY                                  |          0 |            1 | id                          |      771144 | BTREE      |
+| battle_participants        | uniq_battle_participants_battle_player   |          0 |            1 | battle_id                   |       96393 | BTREE      |
+| battle_participants        | uniq_battle_participants_battle_player   |          0 |            2 | player_id                   |      771144 | BTREE      |
+| battle_teams               | idx_battle_teams_battle_id               |          1 |            1 | battle_id                   |      108733 | BTREE      |
+| battle_teams               | PRIMARY                                  |          0 |            1 | id                          |      434935 | BTREE      |
+| battle_teams               | uniq_battle_teams_battle_index           |          0 |            1 | battle_id                   |      108733 | BTREE      |
+| battle_teams               | uniq_battle_teams_battle_index           |          0 |            2 | team_index                  |      434935 | BTREE      |
+| brawler_aliases            | idx_brawler_aliases_brawler_id           |          1 |            1 | brawler_id                  |           0 | BTREE      |
+| brawler_aliases            | PRIMARY                                  |          0 |            1 | id                          |           0 | BTREE      |
+| brawler_aliases            | uniq_brawler_aliases_brawler_alias       |          0 |            1 | brawler_id                  |           0 | BTREE      |
+| brawler_aliases            | uniq_brawler_aliases_brawler_alias       |          0 |            2 | alias                       |           0 | BTREE      |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_mode          |          1 |            1 | game_mode_id                |          19 | BTREE      |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_patch         |          1 |            1 | patch_id                    |           1 | BTREE      |
+| brawler_mode_aggregates    | idx_brawler_mode_aggregates_lookup       |          1 |            1 | brawler_id                  |         106 | BTREE      |
+| brawler_mode_aggregates    | idx_brawler_mode_aggregates_lookup       |          1 |            2 | game_mode_id                |        1734 | BTREE      |
+| brawler_mode_aggregates    | idx_brawler_mode_aggregates_lookup       |          1 |            3 | patch_id                    |        1734 | BTREE      |
+| brawler_mode_aggregates    | idx_brawler_mode_aggregates_run_id       |          1 |            1 | aggregation_run_id          |          11 | BTREE      |
+| brawler_mode_aggregates    | PRIMARY                                  |          0 |            1 | id                          |       19074 | BTREE      |
+| brawler_mode_aggregates    | uniq_brawler_mode_aggregates_scope       |          0 |            1 | brawler_id                  |         100 | BTREE      |
+| brawler_mode_aggregates    | uniq_brawler_mode_aggregates_scope       |          0 |            2 | game_mode_id                |        1907 | BTREE      |
+| brawler_mode_aggregates    | uniq_brawler_mode_aggregates_scope       |          0 |            3 | patch_id                    |        1734 | BTREE      |
+| brawler_mode_aggregates    | uniq_brawler_mode_aggregates_scope       |          0 |            4 | aggregation_run_id          |       19074 | BTREE      |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_patch      |          1 |            1 | patch_id                    |           1 | BTREE      |
+| brawler_overall_aggregates | idx_brawler_overall_aggregates_lookup    |          1 |            1 | brawler_id                  |         105 | BTREE      |
+| brawler_overall_aggregates | idx_brawler_overall_aggregates_lookup    |          1 |            2 | patch_id                    |         105 | BTREE      |
+| brawler_overall_aggregates | idx_brawler_overall_aggregates_run_id    |          1 |            1 | aggregation_run_id          |          12 | BTREE      |
+| brawler_overall_aggregates | PRIMARY                                  |          0 |            1 | id                          |        1260 | BTREE      |
+| brawler_overall_aggregates | uniq_brawler_overall_aggregates_scope    |          0 |            1 | brawler_id                  |         105 | BTREE      |
+| brawler_overall_aggregates | uniq_brawler_overall_aggregates_scope    |          0 |            2 | patch_id                    |         105 | BTREE      |
+| brawler_overall_aggregates | uniq_brawler_overall_aggregates_scope    |          0 |            3 | aggregation_run_id          |        1260 | BTREE      |
+| canonical_brawlers         | fk_canonical_brawlers_last_fetch_run     |          1 |            1 | last_fetch_run_id           |           1 | BTREE      |
+| canonical_brawlers         | idx_canonical_brawlers_is_active         |          1 |            1 | is_active                   |           1 | BTREE      |
+| canonical_brawlers         | PRIMARY                                  |          0 |            1 | id                          |         106 | BTREE      |
+| canonical_brawlers         | uniq_canonical_brawlers_slug             |          0 |            1 | slug                        |         106 | BTREE      |
+| canonical_brawlers         | uniq_canonical_brawlers_source_id        |          0 |            1 | source_brawler_id           |         106 | BTREE      |
+| canonical_game_modes       | idx_canonical_game_modes_is_active       |          1 |            1 | is_active                   |           1 | BTREE      |
+| canonical_game_modes       | PRIMARY                                  |          0 |            1 | id                          |          20 | BTREE      |
+| canonical_game_modes       | uniq_canonical_game_modes_source_id      |          0 |            1 | source_mode_id              |          20 | BTREE      |
+| canonical_maps             | idx_canonical_maps_game_mode_id          |          1 |            1 | game_mode_id                |          21 | BTREE      |
+| canonical_maps             | idx_canonical_maps_is_active             |          1 |            1 | is_active                   |           1 | BTREE      |
+| canonical_maps             | PRIMARY                                  |          0 |            1 | id                          |         153 | BTREE      |
+| canonical_maps             | uniq_canonical_maps_source_id            |          0 |            1 | source_map_id               |         153 | BTREE      |
+| crawl_batches              | idx_crawl_batches_type_started           |          1 |            1 | batch_type                  |           0 | BTREE      |
+| crawl_batches              | idx_crawl_batches_type_started           |          1 |            2 | started_at                  |           0 | BTREE      |
+| crawl_batches              | idx_crawl_batches_workflow_run_id        |          1 |            1 | workflow_run_id             |           0 | BTREE      |
+| crawl_batches              | PRIMARY                                  |          0 |            1 | id                          |           0 | BTREE      |
+| data_fetch_runs            | fk_data_fetch_runs_retry_of              |          1 |            1 | retry_of_fetch_run_id       |           1 | BTREE      |
+| data_fetch_runs            | idx_data_fetch_runs_endpoint_id          |          1 |            1 | source_endpoint_id          |           4 | BTREE      |
+| data_fetch_runs            | idx_data_fetch_runs_source_id            |          1 |            1 | data_source_id              |           1 | BTREE      |
+| data_fetch_runs            | idx_data_fetch_runs_started_at           |          1 |            1 | started_at                  |       12800 | BTREE      |
+| data_fetch_runs            | idx_data_fetch_runs_status               |          1 |            1 | status                      |           3 | BTREE      |
+| data_fetch_runs            | idx_data_fetch_runs_workflow_run_id      |          1 |            1 | workflow_run_id             |         711 | BTREE      |
+| data_fetch_runs            | PRIMARY                                  |          0 |            1 | id                          |       12800 | BTREE      |
+| data_incidents             | idx_data_incidents_fetch_run_id          |          1 |            1 | related_fetch_run_id        |           4 | BTREE      |
+| data_incidents             | idx_data_incidents_incident_type         |          1 |            1 | incident_type               |           1 | BTREE      |
+| data_incidents             | idx_data_incidents_status                |          1 |            1 | status                      |           1 | BTREE      |
+| data_incidents             | PRIMARY                                  |          0 |            1 | id                          |           4 | BTREE      |
+| data_incidents             | uniq_data_incidents_signature            |          0 |            1 | incident_type               |           1 | BTREE      |
+| data_incidents             | uniq_data_incidents_signature            |          0 |            2 | signature                   |           2 | BTREE      |
+| data_sources               | idx_data_sources_is_enabled              |          1 |            1 | is_enabled                  |           1 | BTREE      |
+| data_sources               | idx_data_sources_source_type             |          1 |            1 | source_type                 |           1 | BTREE      |
+| data_sources               | PRIMARY                                  |          0 |            1 | id                          |           1 | BTREE      |
+| data_sources               | uniq_data_sources_name                   |          0 |            1 | name                        |           1 | BTREE      |
+| detected_changes           | idx_detected_changes_change_type         |          1 |            1 | change_type                 |           1 | BTREE      |
+| detected_changes           | idx_detected_changes_entity              |          1 |            1 | entity_type                 |           1 | BTREE      |
+| detected_changes           | idx_detected_changes_entity              |          1 |            2 | entity_id                   |         106 | BTREE      |
+| detected_changes           | idx_detected_changes_entity              |          1 |            3 | created_at                  |         106 | BTREE      |
+| detected_changes           | idx_detected_changes_fetch_run_id        |          1 |            1 | data_fetch_run_id           |           1 | BTREE      |
+| detected_changes           | PRIMARY                                  |          0 |            1 | id                          |         106 | BTREE      |
+| gadgets                    | idx_gadgets_brawler_id                   |          1 |            1 | brawler_id                  |         106 | BTREE      |
+| gadgets                    | PRIMARY                                  |          0 |            1 | id                          |         212 | BTREE      |
+| gadgets                    | uniq_gadgets_brawler_source_id           |          0 |            1 | brawler_id                  |         106 | BTREE      |
+| gadgets                    | uniq_gadgets_brawler_source_id           |          0 |            2 | source_gadget_id            |         212 | BTREE      |
+| ingestion_rate_budgets     | PRIMARY                                  |          0 |            1 | id                          |           6 | BTREE      |
+| ingestion_rate_budgets     | uniq_ingestion_rate_budgets_scope        |          0 |            1 | budget_scope                |           6 | BTREE      |
+| map_aliases                | idx_map_aliases_map_id                   |          1 |            1 | map_id                      |           0 | BTREE      |
+| map_aliases                | PRIMARY                                  |          0 |            1 | id                          |           0 | BTREE      |
+| map_aliases                | uniq_map_aliases_map_alias               |          0 |            1 | map_id                      |           0 | BTREE      |
+| map_aliases                | uniq_map_aliases_map_alias               |          0 |            2 | alias                       |           0 | BTREE      |
+| matchup_aggregates         | fk_matchup_aggregates_mode               |          1 |            1 | game_mode_id                |        1927 | BTREE      |
+| matchup_aggregates         | fk_matchup_aggregates_opponent           |          1 |            1 | opponent_brawler_id         |        4945 | BTREE      |
+| matchup_aggregates         | fk_matchup_aggregates_patch              |          1 |            1 | patch_id                    |           1 | BTREE      |
+| matchup_aggregates         | idx_matchup_aggregates_lookup            |          1 |            1 | brawler_id                  |        9474 | BTREE      |
+| matchup_aggregates         | idx_matchup_aggregates_lookup            |          1 |            2 | opponent_brawler_id         |       14483 | BTREE      |
+| matchup_aggregates         | idx_matchup_aggregates_lookup            |          1 |            3 | patch_id                    |       13888 | BTREE      |
+| matchup_aggregates         | idx_matchup_aggregates_run_id            |          1 |            1 | aggregation_run_id          |        1398 | BTREE      |
+| matchup_aggregates         | PRIMARY                                  |          0 |            1 | id                          |     1013824 | BTREE      |
+| matchup_aggregates         | uniq_matchup_aggregates_scope            |          0 |            1 | brawler_id                  |        7293 | BTREE      |
+| matchup_aggregates         | uniq_matchup_aggregates_scope            |          0 |            2 | opponent_brawler_id         |       18104 | BTREE      |
+| matchup_aggregates         | uniq_matchup_aggregates_scope            |          0 |            3 | game_mode_id                |      126728 | BTREE      |
+| matchup_aggregates         | uniq_matchup_aggregates_scope            |          0 |            4 | patch_id                    |      126728 | BTREE      |
+| matchup_aggregates         | uniq_matchup_aggregates_scope            |          0 |            5 | aggregation_run_id          |     1013824 | BTREE      |
+| matchup_results            | fk_matchup_results_mode                  |          1 |            1 | game_mode_id                |           1 | BTREE      |
+| matchup_results            | fk_matchup_results_opponent              |          1 |            1 | opponent_brawler_id         |         106 | BTREE      |
+| matchup_results            | idx_matchup_results_brawler              |          1 |            1 | brawler_id                  |          95 | BTREE      |
+| matchup_results            | idx_matchup_results_brawler              |          1 |            2 | opponent_brawler_id         |       10747 | BTREE      |
+| matchup_results            | PRIMARY                                  |          0 |            1 | id                          |      107478 | BTREE      |
+| matchup_results            | uniq_matchup_results_scope               |          0 |            1 | ranking_run_id              |           9 | BTREE      |
+| matchup_results            | uniq_matchup_results_scope               |          0 |            2 | brawler_id                  |        1004 | BTREE      |
+| matchup_results            | uniq_matchup_results_scope               |          0 |            3 | opponent_brawler_id         |      107478 | BTREE      |
+| matchup_results            | uniq_matchup_results_scope               |          0 |            4 | game_mode_id                |      107478 | BTREE      |
+| mode_aliases               | idx_mode_aliases_mode_id                 |          1 |            1 | game_mode_id                |           0 | BTREE      |
+| mode_aliases               | PRIMARY                                  |          0 |            1 | id                          |           0 | BTREE      |
+| mode_aliases               | uniq_mode_aliases_mode_alias             |          0 |            1 | game_mode_id                |           0 | BTREE      |
+| mode_aliases               | uniq_mode_aliases_mode_alias             |          0 |            2 | alias                       |           0 | BTREE      |
+| normalized_battles         | fk_normalized_battles_fetch_run          |          1 |            1 | first_observed_fetch_run_id |        4705 | BTREE      |
+| normalized_battles         | idx_normalized_battles_map_id            |          1 |            1 | map_id                      |         132 | BTREE      |
+| normalized_battles         | idx_normalized_battles_mode_occurred     |          1 |            1 | game_mode_id                |          19 | BTREE      |
+| normalized_battles         | idx_normalized_battles_mode_occurred     |          1 |            2 | occurred_at                 |       98815 | BTREE      |
+| normalized_battles         | idx_normalized_battles_occurred_at       |          1 |            1 | occurred_at                 |       98815 | BTREE      |
+| normalized_battles         | idx_normalized_battles_patch_id          |          1 |            1 | patch_id                    |           1 | BTREE      |
+| normalized_battles         | PRIMARY                                  |          0 |            1 | id                          |       98815 | BTREE      |
+| normalized_battles         | uniq_normalized_battles_key              |          0 |            1 | battle_key                  |       98815 | BTREE      |
+| normalized_clubs           | fk_normalized_clubs_fetch_run            |          1 |            1 | last_fetch_run_id           |         170 | BTREE      |
+| normalized_clubs           | idx_normalized_clubs_last_synced         |          1 |            1 | last_synced_at              |         170 | BTREE      |
+| normalized_clubs           | PRIMARY                                  |          0 |            1 | id                          |         170 | BTREE      |
+| normalized_clubs           | uniq_normalized_clubs_tag                |          0 |            1 | club_tag                    |         170 | BTREE      |
+| normalized_players         | fk_normalized_players_fetch_run          |          1 |            1 | last_fetch_run_id           |        8215 | BTREE      |
+| normalized_players         | idx_normalized_players_club_id           |          1 |            1 | club_id                     |         160 | BTREE      |
+| normalized_players         | idx_normalized_players_pending_club_tag  |          1 |            1 | pending_club_tag            |        1630 | BTREE      |
+| normalized_players         | idx_normalized_players_reachable         |          1 |            1 | is_reachable                |           1 | BTREE      |
+| normalized_players         | idx_normalized_players_region            |          1 |            1 | region                      |           1 | BTREE      |
+| normalized_players         | PRIMARY                                  |          0 |            1 | id                          |      427190 | BTREE      |
+| normalized_players         | uniq_normalized_players_tag              |          0 |            1 | player_tag                  |      427190 | BTREE      |
+| normalized_snapshots       | idx_normalized_snapshots_entity          |          1 |            1 | entity_type                 |           1 | BTREE      |
+| normalized_snapshots       | idx_normalized_snapshots_entity          |          1 |            2 | entity_id                   |         106 | BTREE      |
+| normalized_snapshots       | idx_normalized_snapshots_entity          |          1 |            3 | is_accepted                 |         318 | BTREE      |
+| normalized_snapshots       | idx_normalized_snapshots_fetch_run_id    |          1 |            1 | data_fetch_run_id           |           3 | BTREE      |
+| normalized_snapshots       | PRIMARY                                  |          0 |            1 | id                          |         318 | BTREE      |
+| normalized_snapshots       | uniq_normalized_snapshots_accepted       |          0 |            1 | entity_type                 |           1 | BTREE      |
+| normalized_snapshots       | uniq_normalized_snapshots_accepted       |          0 |            2 | entity_id                   |         106 | BTREE      |
+| normalized_snapshots       | uniq_normalized_snapshots_accepted       |          0 |            3 | accepted_flag               |         318 | BTREE      |
+| observed_players           | idx_observed_players_promoted            |          1 |            1 | promoted_to_active          |           1 | BTREE      |
+| observed_players           | PRIMARY                                  |          0 |            1 | id                          |      429808 | BTREE      |
+| observed_players           | uniq_observed_players_tag                |          0 |            1 | player_tag                  |      429808 | BTREE      |
+| patches                    | fk_patches_triggering_fetch_run          |          1 |            1 | triggering_fetch_run_id     |           0 | BTREE      |
+| patches                    | idx_patches_detected_at                  |          1 |            1 | detected_at                 |           0 | BTREE      |
+| patches                    | idx_patches_status                       |          1 |            1 | status                      |           0 | BTREE      |
+| patches                    | PRIMARY                                  |          0 |            1 | id                          |           0 | BTREE      |
+| patches                    | uniq_patches_active                      |          0 |            1 | active_flag                 |           0 | BTREE      |
+| patches                    | uniq_patches_version_label               |          0 |            1 | version_label               |           0 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_backoff        |          1 |            1 | backoff_until               |           4 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_due            |          1 |            1 | is_active                   |           2 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_due            |          1 |            2 | next_due_at                 |        3538 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_lease          |          1 |            1 | lease_expires_at            |           1 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_priority       |          1 |            1 | is_active                   |           2 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_priority       |          1 |            2 | priority_score              |          14 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_region_bracket |          1 |            1 | region                      |           8 | BTREE      |
+| player_crawl_schedule      | idx_player_crawl_schedule_region_bracket |          1 |            2 | trophy_bracket              |           9 | BTREE      |
+| player_crawl_schedule      | PRIMARY                                  |          0 |            1 | id                          |        3538 | BTREE      |
+| player_crawl_schedule      | uniq_player_crawl_schedule_tag           |          0 |            1 | player_tag                  |        3538 | BTREE      |
+| player_name_history        | idx_player_name_history_player_id        |          1 |            1 | player_id                   |          36 | BTREE      |
+| player_name_history        | PRIMARY                                  |          0 |            1 | id                          |          36 | BTREE      |
+| published_matchup_items    | fk_published_matchup_items_brawler       |          1 |            1 | brawler_id                  |         110 | BTREE      |
+| published_matchup_items    | fk_published_matchup_items_mode          |          1 |            1 | game_mode_id                |           1 | BTREE      |
+| published_matchup_items    | fk_published_matchup_items_opponent      |          1 |            1 | opponent_brawler_id         |         115 | BTREE      |
+| published_matchup_items    | idx_published_matchup_items_brawler      |          1 |            1 | published_snapshot_id       |           1 | BTREE      |
+| published_matchup_items    | idx_published_matchup_items_brawler      |          1 |            2 | brawler_id                  |         189 | BTREE      |
+| published_matchup_items    | PRIMARY                                  |          0 |            1 | id                          |        5103 | BTREE      |
+| published_matchup_items    | uniq_published_matchup_items_pair        |          0 |            1 | published_snapshot_id       |           1 | BTREE      |
+| published_matchup_items    | uniq_published_matchup_items_pair        |          0 |            2 | brawler_id                  |         212 | BTREE      |
+| published_matchup_items    | uniq_published_matchup_items_pair        |          0 |            3 | opponent_brawler_id         |        5103 | BTREE      |
+| published_matchup_items    | uniq_published_matchup_items_pair        |          0 |            4 | game_mode_id                |        5103 | BTREE      |
+| published_snapshots        | fk_published_snapshots_patch             |          1 |            1 | patch_id                    |           1 | BTREE      |
+| published_snapshots        | PRIMARY                                  |          0 |            1 | id                          |           2 | BTREE      |
+| published_snapshots        | uniq_published_snapshots_current         |          0 |            1 | current_flag                |           2 | BTREE      |
+| published_snapshots        | uniq_published_snapshots_ranking_run     |          0 |            1 | ranking_run_id              |           2 | BTREE      |
+| published_snapshot_items   | fk_published_snapshot_items_brawler      |          1 |            1 | brawler_id                  |         105 | BTREE      |
+| published_snapshot_items   | idx_published_snapshot_items_snapshot    |          1 |            1 | published_snapshot_id       |           2 | BTREE      |
+| published_snapshot_items   | PRIMARY                                  |          0 |            1 | id                          |         210 | BTREE      |
+| published_snapshot_items   | uniq_published_snapshot_items_brawler    |          0 |            1 | published_snapshot_id       |           2 | BTREE      |
+| published_snapshot_items   | uniq_published_snapshot_items_brawler    |          0 |            2 | brawler_id                  |         210 | BTREE      |
+| ranking_results            | fk_ranking_results_mode                  |          1 |            1 | game_mode_id                |          20 | BTREE      |
+| ranking_results            | idx_ranking_results_brawler              |          1 |            1 | brawler_id                  |         100 | BTREE      |
+| ranking_results            | idx_ranking_results_brawler              |          1 |            2 | game_mode_id                |        1889 | BTREE      |
+| ranking_results            | PRIMARY                                  |          0 |            1 | id                          |       17001 | BTREE      |
+| ranking_results            | uniq_ranking_results_scope               |          0 |            1 | ranking_run_id              |           9 | BTREE      |
+| ranking_results            | uniq_ranking_results_scope               |          0 |            2 | brawler_id                  |        1000 | BTREE      |
+| ranking_results            | uniq_ranking_results_scope               |          0 |            3 | game_mode_id                |       17001 | BTREE      |
+| ranking_rule_sets          | PRIMARY                                  |          0 |            1 | id                          |           1 | BTREE      |
+| ranking_rule_sets          | uniq_ranking_rule_sets_active            |          0 |            1 | active_flag                 |           1 | BTREE      |
+| ranking_rule_sets          | uniq_ranking_rule_sets_version           |          0 |            1 | version                     |           1 | BTREE      |
+| ranking_rule_weights       | idx_ranking_rule_weights_set_id          |          1 |            1 | ranking_rule_set_id         |           1 | BTREE      |
+| ranking_rule_weights       | PRIMARY                                  |          0 |            1 | id                          |           6 | BTREE      |
+| ranking_rule_weights       | uniq_ranking_rule_weights_set_signal     |          0 |            1 | ranking_rule_set_id         |           1 | BTREE      |
+| ranking_rule_weights       | uniq_ranking_rule_weights_set_signal     |          0 |            2 | signal_name                 |           6 | BTREE      |
+| ranking_runs               | fk_ranking_runs_matchup_agg              |          1 |            1 | matchup_aggregation_run_id  |          11 | BTREE      |
+| ranking_runs               | fk_ranking_runs_mode_agg                 |          1 |            1 | mode_aggregation_run_id     |          11 | BTREE      |
+| ranking_runs               | fk_ranking_runs_overall_agg              |          1 |            1 | overall_aggregation_run_id  |          11 | BTREE      |
+| ranking_runs               | fk_ranking_runs_patch                    |          1 |            1 | patch_id                    |           1 | BTREE      |
+| ranking_runs               | fk_ranking_runs_rule_set                 |          1 |            1 | ranking_rule_set_id         |           1 | BTREE      |
+| ranking_runs               | idx_ranking_runs_started_at              |          1 |            1 | started_at                  |          11 | BTREE      |
+| ranking_runs               | idx_ranking_runs_workflow_run_id         |          1 |            1 | workflow_run_id             |          11 | BTREE      |
+| ranking_runs               | PRIMARY                                  |          0 |            1 | id                          |          11 | BTREE      |
+| raw_api_snapshots          | idx_raw_api_snapshots_created_at         |          1 |            1 | created_at                  |        8742 | BTREE      |
+| raw_api_snapshots          | idx_raw_api_snapshots_endpoint_category  |          1 |            1 | endpoint_category           |           5 | BTREE      |
+| raw_api_snapshots          | idx_raw_api_snapshots_fetch_run_id       |          1 |            1 | data_fetch_run_id           |        8742 | BTREE      |
+| raw_api_snapshots          | PRIMARY                                  |          0 |            1 | id                          |        8742 | BTREE      |
+| schema_migrations          | PRIMARY                                  |          0 |            1 | version                     |          25 | BTREE      |
+| seed_players               | idx_seed_players_bracket                 |          1 |            1 | trophy_bracket              |           1 | BTREE      |
+| seed_players               | idx_seed_players_region                  |          1 |            1 | region                      |           7 | BTREE      |
+| seed_players               | idx_seed_players_source                  |          1 |            1 | seed_source                 |           2 | BTREE      |
+| seed_players               | idx_seed_players_stale                   |          1 |            1 | is_stale                    |           1 | BTREE      |
+| seed_players               | PRIMARY                                  |          0 |            1 | id                          |        1444 | BTREE      |
+| seed_players               | uniq_seed_players_tag                    |          0 |            1 | player_tag                  |        1444 | BTREE      |
+| source_endpoints           | idx_source_endpoints_data_source_id      |          1 |            1 | data_source_id              |           1 | BTREE      |
+| source_endpoints           | idx_source_endpoints_endpoint_category   |          1 |            1 | endpoint_category           |           8 | BTREE      |
+| source_endpoints           | PRIMARY                                  |          0 |            1 | id                          |           8 | BTREE      |
+| source_endpoints           | uniq_source_endpoints_source_category    |          0 |            1 | data_source_id              |           1 | BTREE      |
+| source_endpoints           | uniq_source_endpoints_source_category    |          0 |            2 | endpoint_category           |           8 | BTREE      |
+| star_powers                | idx_star_powers_brawler_id               |          1 |            1 | brawler_id                  |         106 | BTREE      |
+| star_powers                | PRIMARY                                  |          0 |            1 | id                          |         212 | BTREE      |
+| star_powers                | uniq_star_powers_brawler_source_id       |          0 |            1 | brawler_id                  |         106 | BTREE      |
+| star_powers                | uniq_star_powers_brawler_source_id       |          0 |            2 | source_star_power_id        |         212 | BTREE      |
+| tier_thresholds            | fk_tier_thresholds_mode                  |          1 |            1 | mode_scope                  |          19 | BTREE      |
+| tier_thresholds            | idx_tier_thresholds_set_id               |          1 |            1 | ranking_rule_set_id         |           1 | BTREE      |
+| tier_thresholds            | PRIMARY                                  |          0 |            1 | id                          |          19 | BTREE      |
+| tier_thresholds            | uniq_tier_thresholds_set_scope           |          0 |            1 | ranking_rule_set_id         |           1 | BTREE      |
+| tier_thresholds            | uniq_tier_thresholds_set_scope           |          0 |            2 | mode_scope                  |          19 | BTREE      |
+| workflow_definitions       | idx_workflow_definitions_workflow_type   |          1 |            1 | workflow_type               |           2 | BTREE      |
+| workflow_definitions       | PRIMARY                                  |          0 |            1 | id                          |           8 | BTREE      |
+| workflow_definitions       | uniq_workflow_definitions_slug           |          0 |            1 | slug                        |           8 | BTREE      |
+| workflow_locks             | idx_workflow_locks_expires_at            |          1 |            1 | expires_at                  |         876 | BTREE      |
+| workflow_locks             | PRIMARY                                  |          0 |            1 | id                          |         876 | BTREE      |
+| workflow_locks             | uniq_workflow_locks_active               |          0 |            1 | workflow_definition_id      |           8 | BTREE      |
+| workflow_locks             | uniq_workflow_locks_active               |          0 |            2 | active_flag                 |           8 | BTREE      |
+| workflow_runs              | idx_workflow_runs_definition_id          |          1 |            1 | workflow_definition_id      |           8 | BTREE      |
+| workflow_runs              | idx_workflow_runs_started_at             |          1 |            1 | started_at                  |         800 | BTREE      |
+| workflow_runs              | idx_workflow_runs_status                 |          1 |            1 | status                      |           5 | BTREE      |
+| workflow_runs              | PRIMARY                                  |          0 |            1 | id                          |         800 | BTREE      |
+| workflow_steps             | idx_workflow_steps_run_id                |          1 |            1 | workflow_run_id             |           5 | BTREE      |
+| workflow_steps             | PRIMARY                                  |          0 |            1 | id                          |          11 | BTREE      |
+| workflow_steps             | uniq_workflow_steps_run_order            |          0 |            1 | workflow_run_id             |           5 | BTREE      |
+| workflow_steps             | uniq_workflow_steps_run_order            |          0 |            2 | step_order                  |          11 | BTREE      |
++----------------------------+------------------------------------------+------------+--------------+-----------------------------+-------------+------------+
++----------------------------+------------------------------------------+-----------------+
+| TABLE_NAME                 | CONSTRAINT_NAME                          | CONSTRAINT_TYPE |
++----------------------------+------------------------------------------+-----------------+
+| aggregation_runs           | chk_aggregation_runs_scope               | CHECK           |
+| aggregation_runs           | chk_aggregation_runs_status              | CHECK           |
+| aggregation_runs           | fk_aggregation_runs_workflow_run         | FOREIGN KEY     |
+| aggregation_runs           | PRIMARY                                  | PRIMARY KEY     |
+| api_test_snapshots         | PRIMARY                                  | PRIMARY KEY     |
+| battle_observations        | fk_battle_observations_battle            | FOREIGN KEY     |
+| battle_observations        | fk_battle_observations_fetch_run         | FOREIGN KEY     |
+| battle_observations        | PRIMARY                                  | PRIMARY KEY     |
+| battle_observations        | uniq_battle_observations_battle_run      | UNIQUE          |
+| battle_participants        | fk_battle_participants_battle            | FOREIGN KEY     |
+| battle_participants        | fk_battle_participants_brawler           | FOREIGN KEY     |
+| battle_participants        | fk_battle_participants_player            | FOREIGN KEY     |
+| battle_participants        | fk_battle_participants_team              | FOREIGN KEY     |
+| battle_participants        | PRIMARY                                  | PRIMARY KEY     |
+| battle_participants        | uniq_battle_participants_battle_player   | UNIQUE          |
+| battle_teams               | chk_battle_teams_result                  | CHECK           |
+| battle_teams               | fk_battle_teams_battle                   | FOREIGN KEY     |
+| battle_teams               | PRIMARY                                  | PRIMARY KEY     |
+| battle_teams               | uniq_battle_teams_battle_index           | UNIQUE          |
+| brawler_aliases            | chk_brawler_aliases_type                 | CHECK           |
+| brawler_aliases            | fk_brawler_aliases_brawler               | FOREIGN KEY     |
+| brawler_aliases            | PRIMARY                                  | PRIMARY KEY     |
+| brawler_aliases            | uniq_brawler_aliases_brawler_alias       | UNIQUE          |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_brawler       | FOREIGN KEY     |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_mode          | FOREIGN KEY     |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_patch         | FOREIGN KEY     |
+| brawler_mode_aggregates    | fk_brawler_mode_aggregates_run           | FOREIGN KEY     |
+| brawler_mode_aggregates    | PRIMARY                                  | PRIMARY KEY     |
+| brawler_mode_aggregates    | uniq_brawler_mode_aggregates_scope       | UNIQUE          |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_brawler    | FOREIGN KEY     |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_patch      | FOREIGN KEY     |
+| brawler_overall_aggregates | fk_brawler_overall_aggregates_run        | FOREIGN KEY     |
+| brawler_overall_aggregates | PRIMARY                                  | PRIMARY KEY     |
+| brawler_overall_aggregates | uniq_brawler_overall_aggregates_scope    | UNIQUE          |
+| canonical_brawlers         | fk_canonical_brawlers_last_fetch_run     | FOREIGN KEY     |
+| canonical_brawlers         | PRIMARY                                  | PRIMARY KEY     |
+| canonical_brawlers         | uniq_canonical_brawlers_slug             | UNIQUE          |
+| canonical_brawlers         | uniq_canonical_brawlers_source_id        | UNIQUE          |
+| canonical_game_modes       | PRIMARY                                  | PRIMARY KEY     |
+| canonical_game_modes       | uniq_canonical_game_modes_source_id      | UNIQUE          |
+| canonical_maps             | fk_canonical_maps_game_mode              | FOREIGN KEY     |
+| canonical_maps             | PRIMARY                                  | PRIMARY KEY     |
+| canonical_maps             | uniq_canonical_maps_source_id            | UNIQUE          |
+| crawl_batches              | chk_crawl_batches_type                   | CHECK           |
+| crawl_batches              | fk_crawl_batches_workflow_run            | FOREIGN KEY     |
+| crawl_batches              | PRIMARY                                  | PRIMARY KEY     |
+| data_fetch_runs            | chk_data_fetch_runs_status               | CHECK           |
+| data_fetch_runs            | chk_data_fetch_runs_trigger_type         | CHECK           |
+| data_fetch_runs            | fk_data_fetch_runs_endpoint              | FOREIGN KEY     |
+| data_fetch_runs            | fk_data_fetch_runs_retry_of              | FOREIGN KEY     |
+| data_fetch_runs            | fk_data_fetch_runs_source                | FOREIGN KEY     |
+| data_fetch_runs            | fk_data_fetch_runs_workflow_run          | FOREIGN KEY     |
+| data_fetch_runs            | PRIMARY                                  | PRIMARY KEY     |
+| data_incidents             | chk_data_incidents_status                | CHECK           |
+| data_incidents             | chk_data_incidents_type                  | CHECK           |
+| data_incidents             | fk_data_incidents_fetch_run              | FOREIGN KEY     |
+| data_incidents             | PRIMARY                                  | PRIMARY KEY     |
+| data_incidents             | uniq_data_incidents_signature            | UNIQUE          |
+| data_sources               | chk_data_sources_source_type             | CHECK           |
+| data_sources               | PRIMARY                                  | PRIMARY KEY     |
+| data_sources               | uniq_data_sources_name                   | UNIQUE          |
+| detected_changes           | chk_detected_changes_change_type         | CHECK           |
+| detected_changes           | chk_detected_changes_severity            | CHECK           |
+| detected_changes           | fk_detected_changes_fetch_run            | FOREIGN KEY     |
+| detected_changes           | PRIMARY                                  | PRIMARY KEY     |
+| gadgets                    | fk_gadgets_brawler                       | FOREIGN KEY     |
+| gadgets                    | PRIMARY                                  | PRIMARY KEY     |
+| gadgets                    | uniq_gadgets_brawler_source_id           | UNIQUE          |
+| ingestion_rate_budgets     | chk_ingestion_rate_budgets_scope         | CHECK           |
+| ingestion_rate_budgets     | PRIMARY                                  | PRIMARY KEY     |
+| ingestion_rate_budgets     | uniq_ingestion_rate_budgets_scope        | UNIQUE          |
+| map_aliases                | chk_map_aliases_type                     | CHECK           |
+| map_aliases                | fk_map_aliases_map                       | FOREIGN KEY     |
+| map_aliases                | PRIMARY                                  | PRIMARY KEY     |
+| map_aliases                | uniq_map_aliases_map_alias               | UNIQUE          |
+| matchup_aggregates         | chk_matchup_aggregates_distinct_brawlers | CHECK           |
+| matchup_aggregates         | fk_matchup_aggregates_brawler            | FOREIGN KEY     |
+| matchup_aggregates         | fk_matchup_aggregates_mode               | FOREIGN KEY     |
+| matchup_aggregates         | fk_matchup_aggregates_opponent           | FOREIGN KEY     |
+| matchup_aggregates         | fk_matchup_aggregates_patch              | FOREIGN KEY     |
+| matchup_aggregates         | fk_matchup_aggregates_run                | FOREIGN KEY     |
+| matchup_aggregates         | PRIMARY                                  | PRIMARY KEY     |
+| matchup_aggregates         | uniq_matchup_aggregates_scope            | UNIQUE          |
+| matchup_results            | chk_matchup_results_confidence           | CHECK           |
+| matchup_results            | chk_matchup_results_distinct             | CHECK           |
+| matchup_results            | chk_matchup_results_relationship         | CHECK           |
+| matchup_results            | fk_matchup_results_brawler               | FOREIGN KEY     |
+| matchup_results            | fk_matchup_results_mode                  | FOREIGN KEY     |
+| matchup_results            | fk_matchup_results_opponent              | FOREIGN KEY     |
+| matchup_results            | fk_matchup_results_run                   | FOREIGN KEY     |
+| matchup_results            | PRIMARY                                  | PRIMARY KEY     |
+| matchup_results            | uniq_matchup_results_scope               | UNIQUE          |
+| mode_aliases               | chk_mode_aliases_type                    | CHECK           |
+| mode_aliases               | fk_mode_aliases_mode                     | FOREIGN KEY     |
+| mode_aliases               | PRIMARY                                  | PRIMARY KEY     |
+| mode_aliases               | uniq_mode_aliases_mode_alias             | UNIQUE          |
+| normalized_battles         | chk_normalized_battles_structure         | CHECK           |
+| normalized_battles         | fk_normalized_battles_fetch_run          | FOREIGN KEY     |
+| normalized_battles         | fk_normalized_battles_game_mode          | FOREIGN KEY     |
+| normalized_battles         | fk_normalized_battles_map                | FOREIGN KEY     |
+| normalized_battles         | fk_normalized_battles_patch              | FOREIGN KEY     |
+| normalized_battles         | PRIMARY                                  | PRIMARY KEY     |
+| normalized_battles         | uniq_normalized_battles_key              | UNIQUE          |
+| normalized_clubs           | fk_normalized_clubs_fetch_run            | FOREIGN KEY     |
+| normalized_clubs           | PRIMARY                                  | PRIMARY KEY     |
+| normalized_clubs           | uniq_normalized_clubs_tag                | UNIQUE          |
+| normalized_players         | fk_normalized_players_club               | FOREIGN KEY     |
+| normalized_players         | fk_normalized_players_fetch_run          | FOREIGN KEY     |
+| normalized_players         | PRIMARY                                  | PRIMARY KEY     |
+| normalized_players         | uniq_normalized_players_tag              | UNIQUE          |
+| normalized_snapshots       | fk_normalized_snapshots_fetch_run        | FOREIGN KEY     |
+| normalized_snapshots       | PRIMARY                                  | PRIMARY KEY     |
+| normalized_snapshots       | uniq_normalized_snapshots_accepted       | UNIQUE          |
+| observed_players           | chk_observed_players_source_type         | CHECK           |
+| observed_players           | PRIMARY                                  | PRIMARY KEY     |
+| observed_players           | uniq_observed_players_tag                | UNIQUE          |
+| patches                    | chk_patches_source                       | CHECK           |
+| patches                    | chk_patches_status                       | CHECK           |
+| patches                    | fk_patches_triggering_fetch_run          | FOREIGN KEY     |
+| patches                    | PRIMARY                                  | PRIMARY KEY     |
+| patches                    | uniq_patches_active                      | UNIQUE          |
+| patches                    | uniq_patches_version_label               | UNIQUE          |
+| player_crawl_schedule      | PRIMARY                                  | PRIMARY KEY     |
+| player_crawl_schedule      | uniq_player_crawl_schedule_tag           | UNIQUE          |
+| player_name_history        | fk_player_name_history_player            | FOREIGN KEY     |
+| player_name_history        | PRIMARY                                  | PRIMARY KEY     |
+| published_matchup_items    | chk_published_matchup_items_confidence   | CHECK           |
+| published_matchup_items    | chk_published_matchup_items_distinct     | CHECK           |
+| published_matchup_items    | chk_published_matchup_items_relationship | CHECK           |
+| published_matchup_items    | fk_published_matchup_items_brawler       | FOREIGN KEY     |
+| published_matchup_items    | fk_published_matchup_items_mode          | FOREIGN KEY     |
+| published_matchup_items    | fk_published_matchup_items_opponent      | FOREIGN KEY     |
+| published_matchup_items    | fk_published_matchup_items_snapshot      | FOREIGN KEY     |
+| published_matchup_items    | PRIMARY                                  | PRIMARY KEY     |
+| published_matchup_items    | uniq_published_matchup_items_pair        | UNIQUE          |
+| published_snapshots        | fk_published_snapshots_patch             | FOREIGN KEY     |
+| published_snapshots        | fk_published_snapshots_run               | FOREIGN KEY     |
+| published_snapshots        | PRIMARY                                  | PRIMARY KEY     |
+| published_snapshots        | uniq_published_snapshots_current         | UNIQUE          |
+| published_snapshots        | uniq_published_snapshots_ranking_run     | UNIQUE          |
+| published_snapshot_items   | chk_published_snapshot_items_confidence  | CHECK           |
+| published_snapshot_items   | chk_published_snapshot_items_tier        | CHECK           |
+| published_snapshot_items   | fk_published_snapshot_items_brawler      | FOREIGN KEY     |
+| published_snapshot_items   | fk_published_snapshot_items_snapshot     | FOREIGN KEY     |
+| published_snapshot_items   | PRIMARY                                  | PRIMARY KEY     |
+| published_snapshot_items   | uniq_published_snapshot_items_brawler    | UNIQUE          |
+| ranking_results            | chk_ranking_results_confidence           | CHECK           |
+| ranking_results            | chk_ranking_results_tier                 | CHECK           |
+| ranking_results            | fk_ranking_results_brawler               | FOREIGN KEY     |
+| ranking_results            | fk_ranking_results_mode                  | FOREIGN KEY     |
+| ranking_results            | fk_ranking_results_run                   | FOREIGN KEY     |
+| ranking_results            | PRIMARY                                  | PRIMARY KEY     |
+| ranking_results            | uniq_ranking_results_scope               | UNIQUE          |
+| ranking_rule_sets          | PRIMARY                                  | PRIMARY KEY     |
+| ranking_rule_sets          | uniq_ranking_rule_sets_active            | UNIQUE          |
+| ranking_rule_sets          | uniq_ranking_rule_sets_version           | UNIQUE          |
+| ranking_rule_weights       | fk_ranking_rule_weights_set              | FOREIGN KEY     |
+| ranking_rule_weights       | PRIMARY                                  | PRIMARY KEY     |
+| ranking_rule_weights       | uniq_ranking_rule_weights_set_signal     | UNIQUE          |
+| ranking_runs               | chk_ranking_runs_status                  | CHECK           |
+| ranking_runs               | fk_ranking_runs_matchup_agg              | FOREIGN KEY     |
+| ranking_runs               | fk_ranking_runs_mode_agg                 | FOREIGN KEY     |
+| ranking_runs               | fk_ranking_runs_overall_agg              | FOREIGN KEY     |
+| ranking_runs               | fk_ranking_runs_patch                    | FOREIGN KEY     |
+| ranking_runs               | fk_ranking_runs_rule_set                 | FOREIGN KEY     |
+| ranking_runs               | fk_ranking_runs_workflow_run             | FOREIGN KEY     |
+| ranking_runs               | PRIMARY                                  | PRIMARY KEY     |
+| raw_api_snapshots          | fk_raw_api_snapshots_fetch_run           | FOREIGN KEY     |
+| raw_api_snapshots          | PRIMARY                                  | PRIMARY KEY     |
+| schema_migrations          | PRIMARY                                  | PRIMARY KEY     |
+| seed_players               | chk_seed_players_source                  | CHECK           |
+| seed_players               | PRIMARY                                  | PRIMARY KEY     |
+| seed_players               | uniq_seed_players_tag                    | UNIQUE          |
+| source_endpoints           | fk_source_endpoints_data_source          | FOREIGN KEY     |
+| source_endpoints           | PRIMARY                                  | PRIMARY KEY     |
+| source_endpoints           | uniq_source_endpoints_source_category    | UNIQUE          |
+| star_powers                | fk_star_powers_brawler                   | FOREIGN KEY     |
+| star_powers                | PRIMARY                                  | PRIMARY KEY     |
+| star_powers                | uniq_star_powers_brawler_source_id       | UNIQUE          |
+| tier_thresholds            | chk_tier_thresholds_type                 | CHECK           |
+| tier_thresholds            | fk_tier_thresholds_mode                  | FOREIGN KEY     |
+| tier_thresholds            | fk_tier_thresholds_set                   | FOREIGN KEY     |
+| tier_thresholds            | PRIMARY                                  | PRIMARY KEY     |
+| tier_thresholds            | uniq_tier_thresholds_set_scope           | UNIQUE          |
+| workflow_definitions       | PRIMARY                                  | PRIMARY KEY     |
+| workflow_definitions       | uniq_workflow_definitions_slug           | UNIQUE          |
+| workflow_locks             | fk_workflow_locks_definition             | FOREIGN KEY     |
+| workflow_locks             | PRIMARY                                  | PRIMARY KEY     |
+| workflow_locks             | uniq_workflow_locks_active               | UNIQUE          |
+| workflow_runs              | chk_workflow_runs_status                 | CHECK           |
+| workflow_runs              | chk_workflow_runs_triggered_by           | CHECK           |
+| workflow_runs              | fk_workflow_runs_definition              | FOREIGN KEY     |
+| workflow_runs              | PRIMARY                                  | PRIMARY KEY     |
+| workflow_steps             | chk_workflow_steps_status                | CHECK           |
+| workflow_steps             | fk_workflow_steps_run                    | FOREIGN KEY     |
+| workflow_steps             | PRIMARY                                  | PRIMARY KEY     |
+| workflow_steps             | uniq_workflow_steps_run_order            | UNIQUE          |
++----------------------------+------------------------------------------+-----------------+
++--------------------------+------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| TABLE_NAME               | CONSTRAINT_NAME                          | CHECK_CLAUSE                                                                                                                                                                                                                           |
++--------------------------+------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| aggregation_runs         | chk_aggregation_runs_scope               | `scope` in ('overall','per_mode','matchup')                                                                                                                                                                                            |
+| aggregation_runs         | chk_aggregation_runs_status              | `status` in ('running','succeeded','succeeded_with_warnings','failed')                                                                                                                                                                 |
+| battle_teams             | chk_battle_teams_result                  | `result` in ('victory','defeat','draw','unknown')                                                                                                                                                                                      |
+| brawler_aliases          | chk_brawler_aliases_type                 | `alias_type` in ('name_history','old_slug','localized')                                                                                                                                                                                |
+| crawl_batches            | chk_crawl_batches_type                   | `batch_type` in ('player_discovery','battle_log','ranking_seed','club_expansion')                                                                                                                                                      |
+| data_fetch_runs          | chk_data_fetch_runs_status               | `status` in ('pending','running','success','partial','failed','timeout','dead')                                                                                                                                                        |
+| data_fetch_runs          | chk_data_fetch_runs_trigger_type         | `trigger_type` in ('manual','cron','api')                                                                                                                                                                                              |
+| data_incidents           | chk_data_incidents_status                | `status` in ('open','investigating','resolved','wont_fix')                                                                                                                                                                             |
+| data_incidents           | chk_data_incidents_type                  | `incident_type` in ('schema_mismatch','invalid_value','unknown_entity','volume_collapse','source_disagreement','partial_payload','transaction_failure','checksum_inconsistency','rate_limit_exhausted','stuck_lease')                  |
+| data_sources             | chk_data_sources_source_type             | `source_type` in ('official_api','official_notes','first_party_import','statistical_provider','internal')                                                                                                                              |
+| detected_changes         | chk_detected_changes_change_type         | `change_type` in ('new_brawler','brawler_removed_or_deprecated','stat_change','gadget_change','star_power_change','gear_change','new_game_mode','patch_version_change','schema_change','missing_source_data','unexpected_mass_change') |
+| detected_changes         | chk_detected_changes_severity            | `severity` in ('info','warning','critical')                                                                                                                                                                                            |
+| ingestion_rate_budgets   | chk_ingestion_rate_budgets_scope         | `budget_scope` in ('global_daily','catalog','rankings','player_profile','battle_log','club')                                                                                                                                           |
+| map_aliases              | chk_map_aliases_type                     | `alias_type` in ('name_history','old_slug')                                                                                                                                                                                            |
+| matchup_aggregates       | chk_matchup_aggregates_distinct_brawlers | `brawler_id` <> `opponent_brawler_id`                                                                                                                                                                                                  |
+| matchup_results          | chk_matchup_results_confidence           | `confidence_level` in ('insufficient','weak_signal','probable_counter','high_confidence_counter')                                                                                                                                      |
+| matchup_results          | chk_matchup_results_distinct             | `brawler_id` <> `opponent_brawler_id`                                                                                                                                                                                                  |
+| matchup_results          | chk_matchup_results_relationship         | `relationship` is null or `relationship` in ('hard_counter','counter','neutral','strong','hard_advantage')                                                                                                                             |
+| mode_aliases             | chk_mode_aliases_type                    | `alias_type` in ('name_history','old_slug')                                                                                                                                                                                            |
+| normalized_battles       | chk_normalized_battles_structure         | `structure` in ('teams','solo_ranked')                                                                                                                                                                                                 |
+| observed_players         | chk_observed_players_source_type         | `source_type` in ('battle_participant','club_member','ranking_adjacent')                                                                                                                                                               |
+| patches                  | chk_patches_source                       | `source` = 'inferred_from_catalog_change'                                                                                                                                                                                              |
+| patches                  | chk_patches_status                       | `status` in ('active','superseded')                                                                                                                                                                                                    |
+| published_matchup_items  | chk_published_matchup_items_confidence   | `confidence_level` in ('probable_counter','high_confidence_counter')                                                                                                                                                                   |
+| published_matchup_items  | chk_published_matchup_items_distinct     | `brawler_id` <> `opponent_brawler_id`                                                                                                                                                                                                  |
+| published_matchup_items  | chk_published_matchup_items_relationship | `relationship` in ('hard_counter','counter','neutral','strong','hard_advantage')                                                                                                                                                       |
+| published_snapshot_items | chk_published_snapshot_items_confidence  | `overall_confidence` in ('low','medium','high')                                                                                                                                                                                        |
+| published_snapshot_items | chk_published_snapshot_items_tier        | `overall_tier` in ('S','A','B','C','D')                                                                                                                                                                                                |
+| ranking_results          | chk_ranking_results_confidence           | `confidence` in ('insufficient','low','medium','high')                                                                                                                                                                                 |
+| ranking_results          | chk_ranking_results_tier                 | `tier` is null or `tier` in ('S','A','B','C','D')                                                                                                                                                                                      |
+| ranking_runs             | chk_ranking_runs_status                  | `status` in ('running','succeeded','held','failed')                                                                                                                                                                                    |
+| seed_players             | chk_seed_players_source                  | `seed_source` in ('global_rank','country_rank','club','manual','observed_promotion')                                                                                                                                                   |
+| tier_thresholds          | chk_tier_thresholds_type                 | `threshold_type` in ('fixed','percentile')                                                                                                                                                                                             |
+| workflow_runs            | chk_workflow_runs_status                 | `status` in ('running','succeeded','succeeded_with_warnings','held','failed','rolled_back')                                                                                                                                            |
+| workflow_runs            | chk_workflow_runs_triggered_by           | `triggered_by` in ('schedule','event','manual')                                                                                                                                                                                        |
+| workflow_steps           | chk_workflow_steps_status                | `status` in ('pending','running','succeeded','failed','skipped')                                                                                                                                                                       |
++--------------------------+------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
++----------------------+---------------+-------------+------------------+----------------------------------+
+| TABLE_NAME           | COLUMN_NAME   | COLUMN_TYPE | EXTRA            | GENERATION_EXPRESSION            |
++----------------------+---------------+-------------+------------------+----------------------------------+
+| normalized_snapshots | accepted_flag | tinyint(4)  | STORED GENERATED | if(`is_accepted` = 1,1,NULL)     |
+| patches              | active_flag   | tinyint(4)  | STORED GENERATED | if(`status` = 'active',1,NULL)   |
+| published_snapshots  | current_flag  | tinyint(4)  | STORED GENERATED | if(`is_current` = 1,1,NULL)      |
+| ranking_rule_sets    | active_flag   | tinyint(4)  | STORED GENERATED | if(`is_active` = 1,1,NULL)       |
+| workflow_locks       | active_flag   | tinyint(4)  | STORED GENERATED | if(`released_at` is null,1,NULL) |
++----------------------+---------------+-------------+------------------+----------------------------------+
++--------+--------------------+--------+
+| ENGINE | TABLE_COLLATION    | tables |
++--------+--------------------+--------+
+| InnoDB | utf8mb4_unicode_ci |     47 |
++--------+--------------------+--------+
++---------+-----------------------------------------+------------------------------------------------------------------+-------------------------+
+| version | name                                    | checksum                                                         | applied_at              |
++---------+-----------------------------------------+------------------------------------------------------------------+-------------------------+
+| 0001    | create_data_source_registry             | 264890468304865996acbebe900762ff710c46da21a8e5209d6d91b6c8d5ad81 | 2026-07-15 19:20:52.757 |
+| 0002    | create_workflow_foundation              | 997028a1de6b30cc431cf3880886ef0616b42a2a4f8e47046c2d38c83972eb94 | 2026-07-15 19:20:52.776 |
+| 0003    | create_fetch_run_tracking               | 9d567e77b61df35e7c7f7a58182a7c1424e38507bd4e31e7220e5b8fefbf226d | 2026-07-15 19:20:52.787 |
+| 0004    | create_raw_snapshot_storage             | 9faf89beb3b99cd7b3af41b0f8d9570f438bc6f739aa238c7e1939abed7491a9 | 2026-07-15 19:20:52.792 |
+| 0005    | create_normalized_snapshot_foundation   | 8b727df2ac697b8508ba05c2bf8a3d397095a4ca49d98343301df491dfd0cef5 | 2026-07-15 19:20:52.797 |
+| 0006    | create_canonical_brawler_catalog        | 2d227bce8b4b5b2a1636458618e824871e817ab4293b1461e505aaf8e67bdd38 | 2026-07-15 19:20:52.822 |
+| 0007    | create_change_detection                 | 0049fc6718bcf4f0438a3e0abf4ebb280069fae6eb5ecdc63bd479d17dc4fd6f | 2026-07-15 19:20:52.826 |
+| 0008    | create_data_incidents                   | 4060210b9b96047a6c765f3d32cc3f948f1f51745876c3fe1a1f8e706ca02cf6 | 2026-07-15 19:20:52.836 |
+| 0009    | extend_fetch_run_and_incident_columns   | c6a12f374d685e7443fd0f91910f8c37804de5691fd158df2f2f98708072abb7 | 2026-07-15 21:07:37.819 |
+| 0010    | create_game_mode_and_map_catalog        | b5947fdb94706a7656bdf62eefb5805a9aa733434839c072d702e6c6859acb00 | 2026-07-15 21:07:37.839 |
+| 0011    | create_seed_and_observed_players        | 0961a0ec7fb119c691257ea4436efa0a5c5ef9c6332322d7222aaf959b586f80 | 2026-07-15 21:07:37.849 |
+| 0012    | create_player_crawl_schedule            | 3d412b38d1f2ad0218db52c5ae837cedd591bf3f2ec37fd3faede8ed5fc2e01e | 2026-07-15 21:07:37.854 |
+| 0013    | create_normalized_players_and_clubs     | af088ff0ea60e3714a8121b1ac218e958d34b0365c3682ddb663b119e160ebd6 | 2026-07-15 21:07:37.865 |
+| 0014    | create_battle_tables                    | aab4acd247747216c2a56ad2396d0c724d7fb74df02ba8b4fc36b075a4272302 | 2026-07-15 21:07:37.890 |
+| 0015    | create_rate_budgets                     | ea0413c2796b7c8827993b75c10c34b01c1a485204cc6647dd14d65daf914e75 | 2026-07-15 21:07:37.896 |
+| 0016    | widen_workflow_runs_status              | dc3b85acd855eb2f2fe2427bdc8f784790e0229bf37a562502162ca4dda0d69a | 2026-07-15 21:40:11.967 |
+| 0017    | add_player_pending_club_tag             | 947595ff3d3fd8ef7e5ee4117cc00faf9805e2c3558edc258429d7a18757ae3f | 2026-07-16 01:02:51.184 |
+| 0018    | add_incident_deduplication              | a8a40047741eafe7f19e704340de18f224e4173c811eab07bb52e91eb350ae77 | 2026-07-16 01:02:51.200 |
+| 0019    | add_crawl_fairness_indexes              | 6b86897b6250e4428a20e0134ca0782ff1e3e79899ef5ba261bfcbb6c73a5485 | 2026-07-16 01:02:51.205 |
+| 0020    | create_patches                          | 8acc54116d0d4fe950ef5fb1fe99c14fcf53d66eaf7e33cb8f998c3a64c09385 | 2026-07-16 03:28:12.316 |
+| 0021    | create_ranking_rule_schema              | cb45118ec94e0a40bb0a6cad67f79e918cc3f61d0cf14e2e177eeda4438f61ca | 2026-07-16 03:28:12.334 |
+| 0022    | create_aggregation_tables               | 01fff298463209f4fa8a66ff9e0717ea67a1bd62999e541de93b1a79896d67b1 | 2026-07-16 04:44:48.953 |
+| 0023    | extend_aggregates_with_latest_battle_at | 6d541311607aa88571a98719e1afa8883d4667132b2755767803aeca3eec2aa6 | 2026-07-16 05:25:24.266 |
+| 0024    | create_ranking_and_publication_tables   | 06dbd5e188bea7762731782c39237bf7346ea181271a21397cc5c2c97e22e864 | 2026-07-16 05:25:24.364 |
+| 0025    | seed_ranking_rule_set_v1                | a6fa0b78d83e9fe158738e72b1c53616994f33b7f6401958008a2d35f79d3544 | 2026-07-16 05:25:24.367 |
++---------+-----------------------------------------+------------------------------------------------------------------+-------------------------+
++----------------------------+----------------+
+| TABLE_NAME                 | estimated_rows |
++----------------------------+----------------+
+| matchup_aggregates         |        1013824 |
+| battle_participants        |         771144 |
+| battle_teams               |         434935 |
+| observed_players           |         429808 |
+| normalized_players         |         427190 |
+| battle_observations        |         140046 |
+| matchup_results            |         107478 |
+| normalized_battles         |          98815 |
+| brawler_mode_aggregates    |          19074 |
+| ranking_results            |          17001 |
+| data_fetch_runs            |          12800 |
+| raw_api_snapshots          |           8742 |
+| published_matchup_items    |           5103 |
+| player_crawl_schedule      |           3538 |
+| seed_players               |           1444 |
+| brawler_overall_aggregates |           1260 |
+| workflow_locks             |            876 |
+| workflow_runs              |            800 |
+| normalized_snapshots       |            318 |
+| gadgets                    |            212 |
+| star_powers                |            212 |
+| published_snapshot_items   |            210 |
+| normalized_clubs           |            170 |
+| canonical_maps             |            153 |
+| detected_changes           |            106 |
+| canonical_brawlers         |            106 |
+| player_name_history        |             36 |
+| aggregation_runs           |             36 |
+| schema_migrations          |             25 |
+| canonical_game_modes       |             20 |
+| tier_thresholds            |             19 |
+| workflow_steps             |             11 |
+| ranking_runs               |             11 |
+| workflow_definitions       |              8 |
+| source_endpoints           |              8 |
+| ranking_rule_weights       |              6 |
+| ingestion_rate_budgets     |              6 |
+| data_incidents             |              4 |
+| published_snapshots        |              2 |
+| api_test_snapshots         |              2 |
+| ranking_rule_sets          |              1 |
+| data_sources               |              1 |
+| map_aliases                |              0 |
+| patches                    |              0 |
+| crawl_batches              |              0 |
+| brawler_aliases            |              0 |
+| mode_aliases               |              0 |
++----------------------------+----------------+
++----------------------------+---------+----------+----------+
+| TABLE_NAME                 | data_mb | index_mb | total_mb |
++----------------------------+---------+----------+----------+
+| matchup_aggregates         |  250.00 |   794.53 |  1044.53 |
+| battle_participants        |  185.00 |   486.98 |   671.98 |
+| raw_api_snapshots          |  331.50 |     4.55 |   336.05 |
+| normalized_players         |   66.73 |   170.98 |   237.72 |
+| battle_teams               |   51.67 |   104.80 |   156.47 |
+| observed_players           |   82.77 |    55.23 |   138.00 |
+| normalized_battles         |   29.63 |    73.53 |   103.16 |
+| matchup_results            |   23.59 |    65.66 |    89.25 |
+| battle_observations        |   21.59 |    66.05 |    87.64 |
+| brawler_mode_aggregates    |    4.52 |    15.67 |    20.19 |
+| ranking_results            |    3.52 |    10.64 |    14.16 |
+| data_fetch_runs            |    3.52 |     9.09 |    12.61 |
+| published_matchup_items    |    1.52 |     7.30 |     8.81 |
+| player_crawl_schedule      |    0.48 |     1.14 |     1.63 |
+| brawler_overall_aggregates |    0.23 |     0.50 |     0.73 |
++----------------------------+---------+----------+----------+
++-----------------------------+---+
+| identity_kind               | n |
++-----------------------------+---+
+| published_snapshots_current | 1 |
+| ranking_rule_sets_active    | 1 |
+| patches_active              | 0 |
++-----------------------------+---+
++--------------------------------------+--------------------------------------+-------------------------+------------+
+| snapshot_id                          | ranking_run_id                       | published_at            | item_count |
++--------------------------------------+--------------------------------------+-------------------------+------------+
+| dd68949f-1682-46f8-941e-cc9f39bc65d9 | 1d8ee88c-41ef-4f57-a94d-6ca6cf6b5472 | 2026-07-16 05:32:51.632 |        105 |
++--------------------------------------+--------------------------------------+-------------------------+------------+
++-------------------------+------+
+| status                  | runs |
++-------------------------+------+
+| failed                  |  180 |
+| held                    |    8 |
+| running                 |    9 |
+| succeeded               |  549 |
+| succeeded_with_warnings |   54 |
++-------------------------+------+
++------------------+
+| unreleased_locks |
++------------------+
+|                0 |
++------------------+

@@ -1,13 +1,25 @@
 # DATASET Phase 2 — backup and recovery
 
-Phase 2 has two independent parts. They have different statuses and must not be reported as one.
+Phase 2 has several parts with **different statuses that must not be reported as one**.
 
 | Part | Status | Basis |
 |---|---|---|
-| **A. Repository tooling and documentation** | **DONE** | Five scripts + two documents + 17 passing safety tests, all in this repository. |
-| **B. Real restore proof** | **BLOCKED** | No backup artifact is accessible, and no database engine is installed on this workstation. |
+| **A. Repository tooling and documentation** | **DONE** | Five scripts + two documents + safety tests, all in this repository. |
+| **B1. Backup artifact verification** | **PASS** | A production Hostinger backup (~1.1 GB) was downloaded and successfully consumed by the restore; a corrupt/incomplete dump would have failed the load. |
+| **B2. Isolated database restore** | **PASS** | Restored into disposable `brawlranks_restoretest_20260719` (MariaDB 11.8), name-guarded by `restore-isolated.sh`. |
+| **B3. Schema/data invariant validation** | **PASS** | `validate-restored-db.sql` completed with **no FAIL verdict** (identity, 25/25 checksums, 47 tables, 73 FKs, 5/5 generated columns, dedupe 100,472=100,472, all orphan classes 0, one current snapshot of 105 items, secret sweep 0). |
+| **B4. Application/public-API smoke test** | **PASS** | The real public read path (`lib/publishedSnapshots/repository.ts` via `getPool()`) served the current snapshot with 105 correctly-shaped, score-ordered items — read-only. See `scripts/dataset/smoke-restored-db.ts`. |
+| **B5. Archived raw-object restore/replay** | **DEFERRED** | There is no archive object or replay path yet. This is created and proven by DATASET Phase 4 (`raw_snapshot_archives` + archive worker + replay). It cannot be proven before Phase 4 exists. |
 
-> **Restore proof was not completed.** Nothing in this document, and nothing produced by the tooling, may be cited as evidence that the Hostinger backup can be restored. Only an executed isolated restore that passes `scripts/dataset/validate-restored-db.sql` closes that gate.
+> **The core restorability gate is now MET.** An isolated restore of a
+> production-derived backup passed `validate-restored-db.sql` with no FAIL and
+> passed a read-only application smoke test. The only outstanding Phase 2 item
+> is B5 (archived raw-object replay), which is intentionally deferred to Phase 4
+> because the archive subsystem it exercises does not exist yet. Restore-proof
+> evidence is recorded in `docs/dataset/evidence/phase2-restore-proof.md`.
+>
+> This is production-**derived**, restored-copy evidence — not a live mutable
+> production query, and not authorization for any production change.
 
 ## 1. Backup artifact discovery — result
 
@@ -147,16 +159,24 @@ Then exercise read-only routes and confirm `/api/public/tier-list` returns the p
 
 ## 8. Phase 2 gate status
 
-| Gate | Status | Missing |
+Updated 2026-07-19 after the isolated restore of a production-derived backup.
+
+| Gate | Status | Notes |
 |---|---|---|
-| Backup artifact exists outside Hostinger | **NOT MET** | Nothing has been downloaded. |
-| Artifact checksum recorded | **NOT MET** | No artifact to hash. |
-| Artifact verified | **NOT MET** | Tooling ready; no input. |
-| Encrypted offsite copy | **NOT MET** | No artifact, no second location. |
-| Isolated restore executed | **NOT MET** | No artifact **and** no database engine. |
-| Restore invariants validated | **NOT MET** | Depends on the above. |
-| Application smoke test on restored DB | **NOT MET** | Depends on the above. |
-| MySQL 8.4 compatibility proven | **NOT MET** | Static only; 1 blocker found. |
+| Backup artifact exists outside Hostinger | **MET (owner)** | Owner downloaded a ~1.1 GB Hostinger dump to a location outside this repository. The artifact itself is never committed. |
+| Artifact checksum recorded | **OWNER RECORD** | Recorded by the owner alongside the artifact (`verify-backup.mjs` + `sha256sum`); not stored in-repo. |
+| Artifact verified | **PASS** | The restore consumed the full dump without a load error (`--force` is never used, so a bad statement would have aborted). |
+| Encrypted offsite copy | **OWNER ACTION** | Encryption/second-provider copy remains an operator responsibility (runbook §4). Not a code deliverable. |
+| Isolated restore executed | **PASS** | `brawlranks_restoretest_20260719` on disposable MariaDB 11.8. |
+| Restore invariants validated | **PASS** | `validate-restored-db.sql` — no FAIL verdict. |
+| Application smoke test on restored DB | **PASS** | `scripts/dataset/smoke-restored-db.ts` — read-only, 105-item current snapshot served through the real repository. |
+| Archived raw-object restore/replay | **DEFERRED → Phase 4** | No archive object/replay path exists yet. |
+| MySQL 8.4 compatibility proven | **IN PROGRESS → Phase 3** | Blocker (`battle_teams.rank`) resolved and clean migrations proven on a real MySQL 8.4 container — see `docs/dataset/phase3-mysql84-compat.md`. |
 | Tooling and runbook exist | **MET** | — |
 
-**Phase 2 tooling: DONE. Phase 2 restore proof: BLOCKED.** DATASET.md makes the restore proof a hard gate for every later phase, so no subsequent DATASET phase may begin until it passes.
+**Phase 2 core restore proof: MET.** The hard restorability gate DATASET.md
+places before later phases is satisfied for the primary database. The single
+remaining Phase 2 item — archived raw-object replay (B5) — is deferred to
+Phase 4, which builds the archive object and replay path it would exercise.
+Encryption and offsite-copy discipline (runbook §4) remain ongoing operator
+responsibilities and are not code deliverables.

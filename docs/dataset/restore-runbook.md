@@ -175,10 +175,20 @@ $ export DB_HOST=127.0.0.1 DB_PORT=3307 \
          DB_NAME=brawlranks_restoretest_20260718 \
          DB_USER=root BRAWL_DB_SECRET_V1='<local-only-password>'
 $ node scripts/migrate.mjs status    # 25 applied, 0 pending, no drift
-$ npm run typecheck && npm run lint && npm test && npm run build
+
+# Read-only public-contract smoke test through the REAL repository code.
+# Refuses any non-isolated / non-loopback / production target (fail closed).
+$ npx tsx scripts/dataset/smoke-restored-db.ts
 ```
 
-Then confirm `/api/public/tier-list` serves the prior published snapshot, no write job starts on its own, and internal cron routes return `401` without a bearer.
+`smoke-restored-db.ts` exercises `lib/publishedSnapshots/repository.ts` via
+`getPool()` and asserts the current published snapshot serves its items,
+correctly shaped and ordered — issuing only SELECTs and starting no write job.
+It is the read-only equivalent of confirming `/api/public/tier-list` serves the
+prior published snapshot. Internal cron routes still return `401` without a
+bearer (covered by the route-auth tests). A full `npm run typecheck && lint &&
+test && build` may additionally be run, but those exercise the codebase, not
+the restored data specifically.
 
 Prefer a least-privilege staging user over root. Never export a production credential into a shell that also has an isolated target configured.
 
