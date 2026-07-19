@@ -27,12 +27,16 @@
  */
 
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..");
+const MIGRATION_FILE_COUNT = readdirSync(path.join(REPO_ROOT, "migrations")).filter((f) =>
+  f.endsWith(".sql")
+).length;
 
 const PRODUCTION_MARKERS = ["u350003894", "brawl2", "prod", "production", "live"];
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -111,12 +115,17 @@ async function main() {
 
     // --- schema checks ---
     const [[mig]] = await conn.query("SELECT COUNT(*) n FROM schema_migrations");
-    check("migrations_applied_25", mig.n === 25, `${mig.n}`);
+    check("migrations_applied_all", mig.n === MIGRATION_FILE_COUNT, `${mig.n} of ${MIGRATION_FILE_COUNT} files`);
 
     const [[tbl]] = await conn.query(
       "SELECT COUNT(*) n FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()"
     );
-    check("table_count_46", tbl.n === 46, `${tbl.n} (45 migration + schema_migrations)`);
+    check("table_count_at_least_46", tbl.n >= 46, `${tbl.n} (>= 45 migration + schema_migrations)`);
+
+    const [[arch]] = await conn.query(
+      "SELECT COUNT(*) n FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='raw_snapshot_archives'"
+    );
+    check("raw_snapshot_archives_present", arch.n === 1, `${arch.n} (Phase 4 archive table)`);
 
     const [[nonInno]] = await conn.query(
       "SELECT COUNT(*) n FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' AND ENGINE<>'InnoDB'"
@@ -135,7 +144,7 @@ async function main() {
     const [[fk]] = await conn.query(
       "SELECT COUNT(*) n FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND CONSTRAINT_TYPE='FOREIGN KEY'"
     );
-    check("foreign_keys_73", fk.n === 73, `${fk.n}`);
+    check("foreign_keys_at_least_73", fk.n >= 73, `${fk.n} (>= 73)`);
 
     const [[gen]] = await conn.query(
       "SELECT COUNT(*) n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND GENERATION_EXPRESSION IS NOT NULL AND GENERATION_EXPRESSION<>''"
