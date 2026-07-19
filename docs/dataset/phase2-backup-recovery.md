@@ -9,14 +9,17 @@ Phase 2 has several parts with **different statuses that must not be reported as
 | **B2. Isolated database restore** | **PASS** | Restored into disposable `brawlranks_restoretest_20260719` (MariaDB 11.8), name-guarded by `restore-isolated.sh`. |
 | **B3. Schema/data invariant validation** | **PASS** | `validate-restored-db.sql` completed with **no FAIL verdict** (identity, 25/25 checksums, 47 tables, 73 FKs, 5/5 generated columns, dedupe 100,472=100,472, all orphan classes 0, one current snapshot of 105 items, secret sweep 0). |
 | **B4. Application/public-API smoke test** | **PASS** | The real public read path (`lib/publishedSnapshots/repository.ts` via `getPool()`) served the current snapshot with 105 correctly-shaped, score-ordered items — read-only. See `scripts/dataset/smoke-restored-db.ts`. |
-| **B5. Archived raw-object restore/replay** | **DEFERRED** | There is no archive object or replay path yet. This is created and proven by DATASET Phase 4 (`raw_snapshot_archives` + archive worker + replay). It cannot be proven before Phase 4 exists. |
+| **B5. Archived raw-object restore/replay** | **MOSTLY MET (one item deferred)** | Built and proven in Phase 4: a real snapshot was archived and replayed — both SHA-256 hashes verified, decompressed, the **existing** `validateBattleLogItems` validator run in no-write mode (valid=1), and the source payload proven unchanged. The single remaining sub-item is running the full battle-graph **normalizer** in dry-run (existing normalizers are write-coupled). |
 
-> **The core restorability gate is now MET.** An isolated restore of a
+> **The core restorability gate is MET.** An isolated restore of a
 > production-derived backup passed `validate-restored-db.sql` with no FAIL and
-> passed a read-only application smoke test. The only outstanding Phase 2 item
-> is B5 (archived raw-object replay), which is intentionally deferred to Phase 4
-> because the archive subsystem it exercises does not exist yet. Restore-proof
-> evidence is recorded in `docs/dataset/evidence/phase2-restore-proof.md`.
+> passed a read-only application smoke test. Phase 4 has since built and proven
+> the archived raw-object replay path (B5): integrity replay + existing-
+> validator dry-run PASS; the **only** outstanding sub-item is running the full
+> battle-graph normalizer in a no-write mode (the existing normalizers are
+> write-coupled). Restore-proof evidence is in
+> `docs/dataset/evidence/phase2-restore-proof.md`; the replay acceptance
+> breakdown is in `docs/dataset/phase4-raw-archive.md`.
 >
 > This is production-**derived**, restored-copy evidence — not a live mutable
 > production query, and not authorization for any production change.
@@ -170,7 +173,7 @@ Updated 2026-07-19 after the isolated restore of a production-derived backup.
 | Isolated restore executed | **PASS** | `brawlranks_restoretest_20260719` on disposable MariaDB 11.8. |
 | Restore invariants validated | **PASS** | `validate-restored-db.sql` — no FAIL verdict. |
 | Application smoke test on restored DB | **PASS** | `scripts/dataset/smoke-restored-db.ts` — read-only, 105-item current snapshot served through the real repository. |
-| Archived raw-object restore/replay | **DEFERRED → Phase 4** | No archive object/replay path exists yet. |
+| Archived raw-object restore/replay | **MOSTLY MET → Phase 4** | Integrity replay + existing-validator dry-run proven; full battle-graph normalizer dry-run is the one deferred sub-item. |
 | MySQL 8.4 compatibility proven | **IN PROGRESS → Phase 3** | Blocker (`battle_teams.rank`) resolved and clean migrations proven on a real MySQL 8.4 container — see `docs/dataset/phase3-mysql84-compat.md`. |
 | Tooling and runbook exist | **MET** | — |
 

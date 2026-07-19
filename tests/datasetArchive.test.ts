@@ -22,6 +22,7 @@ import { InMemoryObjectStorage, LocalFilesystemObjectStorage, ObjectNotFoundErro
 import { replayArchive, ReplayError, jsonStructuralValidator } from "../lib/archive/replay";
 import { signV4, resolveS3Config, encodeRfc3986 } from "../lib/archive/s3Provider";
 import { backoffSeconds, BASE_BACKOFF_SECONDS, MAX_BACKOFF_SECONDS } from "../lib/archive/service";
+import { validateReplayedPayload } from "../lib/archive/replayNormalizer";
 
 const UUID_A = "00087390-7510-4967-90d9-f14fc087b904";
 const UUID_B = "11111111-2222-4333-8444-555555555555";
@@ -280,6 +281,42 @@ test("s3: resolveS3Config is null when unset, throws (no secret) on partial conf
 // ---------------------------------------------------------------------------
 // Backoff
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Replay validator adapter — invokes the EXISTING ingestion validators
+// ---------------------------------------------------------------------------
+
+const VALID_BATTLE_ITEM = {
+  battleTime: "20260716T120000.000Z",
+  event: { id: 15000123, mode: "gemGrab", map: "Hard Rock Mine" },
+  battle: {
+    mode: "gemGrab",
+    type: "ranked",
+    result: "victory",
+    teams: [
+      [{ tag: "#AAA", name: "p1", brawler: { id: 16000000, name: "SHELLY", power: 11, trophies: 900 } }],
+      [{ tag: "#BBB", name: "p2", brawler: { id: 16000001, name: "COLT", power: 10, trophies: 800 } }],
+    ],
+  },
+};
+
+test("replay-normalizer: battle_log dispatches to the existing validator (bare array)", () => {
+  const summary = validateReplayedPayload("battle_log", [VALID_BATTLE_ITEM]);
+  assert.equal(summary.validatorRan, true);
+  assert.equal(summary.validCount, 1);
+  assert.equal(summary.rejectedCount, 0);
+});
+
+test("replay-normalizer: player_profile unwraps the proxy envelope before validating", () => {
+  const enveloped = { ok: true, upstreamStatus: 200, payload: { tag: "#PLR", name: "Player One", trophies: 1000 } };
+  const summary = validateReplayedPayload("player_profile", enveloped);
+  assert.equal(summary.validCount, 1);
+});
+
+test("replay-normalizer: unknown category and zero-valid payloads throw", () => {
+  assert.throws(() => validateReplayedPayload("nope", []), /no existing validator/);
+  assert.throws(() => validateReplayedPayload("battle_log", [{ junk: true }]), /accepted 0 records/);
+});
 
 test("service: backoff is exponential and capped", () => {
   assert.equal(backoffSeconds(1), BASE_BACKOFF_SECONDS);

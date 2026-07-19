@@ -22,7 +22,8 @@ import { getPool } from "../../lib/mysql";
 import { LocalFilesystemObjectStorage } from "../../lib/archive/provider";
 import { enqueuePendingArchives, getArchiveRow } from "../../lib/archive/repository";
 import { archiveOne } from "../../lib/archive/service";
-import { replayArchive, jsonStructuralValidator } from "../../lib/archive/replay";
+import { replayArchive } from "../../lib/archive/replay";
+import { existingValidatorReplay, type ReplayValidationSummary } from "../../lib/archive/replayNormalizer";
 
 const PRODUCTION_MARKERS = ["u350003894", "brawl2", "prod", "production", "live"];
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -54,13 +55,14 @@ async function main(): Promise<void> {
 
   // Capture the source payload BEFORE archiving, to prove it is unchanged after.
   const [beforeRows] = await pool.query<import("mysql2/promise").RowDataPacket[]>(
-    "SELECT payload, checksum FROM raw_api_snapshots WHERE id = ?",
+    "SELECT payload, checksum, endpoint_category FROM raw_api_snapshots WHERE id = ?",
     [snapshotId]
   );
   if (beforeRows.length === 0) refuse(`snapshot ${snapshotId} not found in ${process.env.DB_NAME}`);
   const payloadBefore: string = beforeRows[0].payload;
   const checksumBefore: string = beforeRows[0].checksum;
-  steps.push(`source snapshot: ${snapshotId} (${Buffer.byteLength(payloadBefore, "utf8")} bytes, sha ${checksumBefore.slice(0, 12)}…)`);
+  const endpointCategory: string = beforeRows[0].endpoint_category;
+  steps.push(`source snapshot: ${snapshotId} (${endpointCategory}, ${Buffer.byteLength(payloadBefore, "utf8")} bytes, sha ${checksumBefore.slice(0, 12)}…)`);
 
   // 1. Enqueue (copy-only).
   const enqueued = await enqueuePendingArchives(pool, { bucket: BUCKET, provider: "local-fs", limit: 50 });
@@ -86,9 +88,14 @@ async function main(): Promise<void> {
   const head = await provider.headObject(BUCKET, archive!.objectKey);
   steps.push(`object on local store: ${head ? head.size + " bytes" : "MISSING"}`);
 
-  // 4. Replay: download, verify BOTH hashes, decompress, no-write validate.
-  const report = await replayArchive(pool, provider, snapshotId, { validate: jsonStructuralValidator });
+  // 4. Replay: download, verify BOTH hashes, decompress, and invoke the
+  //    EXISTING ingestion validator in no-write mode (not a generic JSON check).
+  let validation: ReplayValidationSummary | undefined;
+  const report = await replayArchive(pool, provider, snapshotId, {
+    validate: existingValidatorReplay(endpointCategory, (s) => { validation = s; }),
+  });
   steps.push(`replay: objectHashOk=${report.objectChecksumOk} originalHashOk=${report.originalChecksumOk} jsonParsed=${report.jsonParsed} sourceUnchanged=${report.sourcePayloadUnchanged}`);
+  steps.push(`replay validator (existing ${endpointCategory} validator, no-write): valid=${validation?.validCount} rejected=${validation?.rejectedCount}`);
 
   // 5. Prove the SOURCE payload is byte-for-byte unchanged.
   const [afterRows] = await pool.query<import("mysql2/promise").RowDataPacket[]>(

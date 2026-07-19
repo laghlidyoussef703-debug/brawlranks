@@ -67,7 +67,13 @@ retention/publication/migration invoked.
 - Isolated database restore: **PASS**
 - Schema/data invariant validation: **PASS**
 - Application/public-API smoke test: **PASS**
-- Archived raw-object restore/replay: **DEFERRED to Phase 4** (no archive object or replay path exists yet)
+- Archived raw-object restore/replay: **now built and proven in Phase 4** — a
+  real snapshot was archived and replayed: both SHA-256 hashes verified,
+  decompressed, and the **existing** `validateBattleLogItems` validator ran in
+  no-write mode (valid=1); source payload proven unchanged. The **one remaining
+  sub-item** is running the full battle-graph **normalizer** in a dry-run mode
+  (the existing normalizers are write-coupled with no no-write path). See
+  `docs/dataset/phase4-raw-archive.md` → "Replay acceptance criterion".
 
 ## What this does and does not authorize
 
