@@ -27,6 +27,7 @@ const DATASET_UNIT_TESTS = [
   "tests/datasetMysql84Compat.test.ts",
   "tests/datasetDbRoles.test.ts",
   "tests/datasetArchive.test.ts",
+  "tests/datasetArchiveRouteAuth.test.ts",
 ];
 
 // Only run tests that exist, so this stays green as the suite grows.

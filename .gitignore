@@ -55,3 +55,11 @@ next-env.d.ts
 /brawlranks-backups/
 schema-inventory.json
 restore-validation*.txt
+
+# DATASET Phase 4 — generated raw-archive objects must never enter Git.
+# The archive worker writes gzip'd payloads to object storage (or a local dir
+# in tests/proofs); these are production data copies, not source.
+*.json.gz
+/archive-store/
+/tmp-archive/
+**/raw/v1/**
