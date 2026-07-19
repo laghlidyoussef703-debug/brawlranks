@@ -121,6 +121,39 @@ Resulting schema matches production exactly:
 | `tests/datasetMysql84Compat.test.ts` | unit (no DB): 0 static blockers, `rank` quoted, checksum allowlist correctness, reconciliation accept/reject logic | `tsx --test` |
 | `scripts/dataset/mysql84-compat-test.mjs` | integration: real MySQL 8.4 container, migrations from empty + runtime semantics | disposable `mysql:8.4` |
 
+## Role-aware DB configuration (backward-compatible, inert until populated)
+
+`lib/mysql.ts` gains a role abstraction without switching any existing caller:
+
+- **`getPool()` is unchanged** — still the single legacy pool built from
+  `DB_*`/`BRAWL_DB_SECRET_V1` (connectionLimit 2, no TLS). Every current caller
+  (`@/lib/mysql` importers, the public tier-list route, all sync jobs) keeps
+  exactly today's behavior and connection count.
+- **`getReadPool()` / `getWritePool()`** are new and additive. Each resolves
+  from `READ_DB_*` / `WRITE_DB_*`; when the role is not configured they return
+  the *same* legacy `getPool()` singleton, so no extra pool or connection is
+  created until an operator deliberately populates role variables. This is the
+  separately-deployable read/write split DATASET.md Phases 9–12 require, staged
+  so it can ship (both roles on Hostinger) before any cutover.
+- **Fallback:** a role is activated only by setting its `*_HOST`; then
+  `*_NAME`/`*_USER`/`*_SECRET` are all required. A partial role config is
+  **refused** so a misconfiguration can never silently send writes/reads to the
+  wrong database. Legacy `DB_*` remains the fallback for both roles.
+- **TLS:** `*_CA_PATH` / `*_CA` / `*_SSL` enable TLS; `rejectUnauthorized`
+  defaults to **on** and only `*_SSL_REJECT_UNAUTHORIZED=false` disables it
+  (discouraged). The CA file is read only when a pool is actually built; the
+  resolver itself is pure and filesystem-free.
+- **Pool limits:** `*_POOL_SIZE` (default 2) sets each role pool's
+  `connectionLimit`, so total connections stay within the provider budget.
+- **Secrets:** `BRAWL_DB_SECRET_V1`/`READ_DB_SECRET`/`WRITE_DB_SECRET` are read
+  verbatim and never logged; no error message includes a secret value — only
+  variable names. Proven by `tests/datasetDbRoles.test.ts`.
+
+Config resolution is a pure function (`resolveRoleDbConfig(role, env)`) with 11
+unit tests covering fallback, read/write selection, independent endpoints,
+partial-config refusal, TLS intent, pool sizing, and secret-free errors.
+Variables are documented in `.env.example`.
+
 ## Provisioning checklist — DigitalOcean Managed MySQL 8.4 (PLAN ONLY, do not provision)
 
 Nothing here authorizes purchase or provisioning. Each item is an owner
