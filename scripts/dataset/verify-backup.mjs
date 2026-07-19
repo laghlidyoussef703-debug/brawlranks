@@ -12,7 +12,9 @@
  *   - container format (gzip / zip / plain SQL) and, for gzip, that the
  *     stream decompresses cleanly end to end
  *   - that the plaintext looks like a real SQL dump (CREATE TABLE etc.)
- *   - which of this repository's 45 expected tables appear
+ *   - which of this repository's expected tables appear, enumerated over the
+ *     ENTIRE dump (mysqldump interleaves DDL with data, so a head-only scan
+ *     cannot see past the first few tables)
  *   - restore hazards: DEFINER clauses, routines/triggers/events,
  *     non-utf8mb4 charsets, MariaDB-specific syntax
  *   - whether the dump embeds credentials in comments (reported as a
@@ -21,6 +23,14 @@
  * Usage:
  *   node scripts/dataset/verify-backup.mjs <path-to-backup>
  *   node scripts/dataset/verify-backup.mjs <path-to-backup> --json
+ *   node scripts/dataset/verify-backup.mjs <path-to-backup> --head-only
+ *
+ * --head-only inspects just the dump header. It is fast, and its table
+ * enumeration is reported as INCONCLUSIVE — never as "tables missing".
+ *
+ * The four verdicts it reports (gzip integrity, SQL structure, table
+ * enumeration, expected tables) are deliberately separate, and NONE of them
+ * is restore proof. Only an actual isolated restore closes that gate.
  *
  * Exit codes: 0 = all checks passed, 1 = a check failed, 2 = unusable input.
  */
@@ -29,12 +39,71 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createGunzip } from "node:zlib";
+import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildInventory } from "./schema-inventory.mjs";
 
-/** Bytes of decompressed SQL to inspect. The interesting DDL is at the head and we never need the data section. */
-const INSPECT_BYTES = 8 * 1024 * 1024;
+/**
+ * Bytes of decompressed SQL retained for the HEURISTIC checks (charset,
+ * DEFINER, credential shapes, engine banner). Those live in the dump header.
+ *
+ * Table ENUMERATION must never use this window: mysqldump interleaves each
+ * table's DDL with its INSERT data, so in a real dump the 40th table's
+ * CREATE TABLE can sit hundreds of megabytes in. Enumeration streams the
+ * whole artifact instead — see scanDump().
+ */
+const HEAD_BYTES = 8 * 1024 * 1024;
+
+/**
+ * One table DDL statement. Anchored to line start (the `m` flag), which is
+ * what keeps row data from being mistaken for schema: mysqldump writes DDL
+ * at column 0 and packs row data into single long INSERT lines, so a
+ * "CREATE TABLE" appearing inside a quoted JSON payload can never match.
+ *
+ * Handles: backticks, IF NOT EXISTS, DROP TABLE IF EXISTS, database-qualified
+ * names, versioned comments (/*!32312 IF NOT EXISTS *\/), TEMPORARY, and any
+ * case, since dumps are not required to shout their keywords.
+ */
+const TABLE_DDL =
+  /^[ \t]*(?:CREATE|DROP)\s+(?:TEMPORARY\s+)?TABLE\s+(?:\/\*![0-9]{5}\s*)?(?:IF\s+(?:NOT\s+)?EXISTS\s*)?(?:\*\/\s*)?(?:`([^`]+)`|([A-Za-z0-9_$]+))(?:\s*\.\s*(?:`([^`]+)`|([A-Za-z0-9_$]+)))?/gim;
+
+/**
+ * A real USE / CREATE DATABASE statement: line-anchored and semicolon
+ * terminated. Both anchors matter — an unanchored /USE `?(\w+)`?/i matches
+ * the substring "USE KICK" inside a dumped JSON row containing
+ * "ROUNDHOUSE KICK", which is exactly how a manifest once ended up naming
+ * the source database "KICK".
+ */
+const DB_NAME_STATEMENT =
+  /^[ \t]*(?:USE\s+|CREATE\s+DATABASE\s+(?:\/\*![0-9]{5}\s*)?(?:IF\s+NOT\s+EXISTS\s*)?(?:\*\/\s*)?)(?:`([^`]+)`|([A-Za-z0-9_$]+))\s*;/im;
+
+/**
+ * The mysqldump/mariadb-dump header comment, e.g.
+ *   -- Host: localhost    Database: u350003894_brawl2
+ * Only the Database token is captured. The Host is deliberately not captured
+ * and never recorded anywhere — it is private connection detail.
+ */
+const DB_NAME_HEADER = /^--\s+Host:.*?\bDatabase:\s+([A-Za-z0-9_$]+)\s*$/im;
+
+/** A syntactically legal, non-secret-bearing database identifier. */
+const SAFE_DB_IDENTIFIER = /^[A-Za-z0-9_$]{1,64}$/;
+
+/**
+ * Tables without which a restored copy cannot serve or be rebuilt. Missing
+ * ANY of these is a hard failure, not a warning — a dump missing them is not
+ * a usable backup of this system no matter how cleanly it decompresses.
+ */
+const CRITICAL_TABLES = [
+  "normalized_battles",
+  "battle_participants",
+  "battle_teams",
+  "battle_observations",
+  "matchup_aggregates",
+  "published_snapshots",
+  "published_snapshot_items",
+  "schema_migrations",
+];
 
 /**
  * Patterns that indicate a credential was written into the dump (some
@@ -78,17 +147,49 @@ async function hashAndSize(filePath) {
 }
 
 /**
- * Streams the artifact, decompressing when needed, and returns the first
- * INSPECT_BYTES of plaintext plus whether the whole stream decompressed
- * without error. Decompression integrity is verified over the FULL stream,
- * not just the inspected head.
+ * Streams the whole artifact once, decompressing when needed, and returns:
+ *   - `head`: the first HEAD_BYTES of plaintext, for the header heuristics
+ *   - `tables`: every table named by a DDL statement ANYWHERE in the dump
+ *   - `enumerationComplete`: whether the scan actually reached the end
+ *
+ * enumerationComplete is the honesty flag. It is false when the stream was
+ * cut short (decompression error, or --head-only), and callers must then
+ * report table enumeration as INCONCLUSIVE rather than reporting an absence
+ * they never actually looked for.
+ *
+ * Lines are assembled across chunk boundaries so a DDL statement split by
+ * the reader is still seen at column 0. A "line" longer than MAX_LINE is a
+ * bulk INSERT, never DDL, so it is skipped without buffering — this is what
+ * keeps a multi-gigabyte dump inside a small, constant memory footprint.
  */
-async function readPlaintextHead(filePath, format) {
+const MAX_LINE = 1024 * 1024;
+
+async function scanDump(filePath, format, { headOnly = false } = {}) {
   return new Promise((resolve, reject) => {
-    const chunks = [];
-    let collected = 0;
+    const headChunks = [];
+    let headBytes = 0;
+    let plaintextBytes = 0;
     let decompressOk = true;
     let decompressError = null;
+    let reachedEnd = false;
+
+    const tables = new Set();
+    const decoder = new StringDecoder("utf8");
+    let pending = "";
+    let skippingLongLine = false;
+
+    const scanLines = (text) => {
+      // Cheap pre-filter: the overwhelming majority of a dump is row data
+      // with no DDL keyword, and skipping the regex there is what makes a
+      // full-stream scan take seconds rather than minutes.
+      if (!text.includes("TABLE") && !text.includes("table") && !text.includes("Table")) return;
+      TABLE_DDL.lastIndex = 0;
+      for (const m of text.matchAll(TABLE_DDL)) {
+        // A database-qualified name puts the table in the second position.
+        const name = m[3] ?? m[4] ?? m[1] ?? m[2];
+        if (name) tables.add(name.toLowerCase());
+      }
+    };
 
     const source = createReadStream(filePath);
     let stream = source;
@@ -99,22 +200,97 @@ async function readPlaintextHead(filePath, format) {
       stream = source.pipe(gunzip);
     }
 
-    stream.on("data", (chunk) => {
-      if (collected < INSPECT_BYTES) {
-        chunks.push(chunk);
-        collected += chunk.length;
-      }
-      // Keep draining so gzip integrity is checked over the entire stream.
+    const finish = () => resolve({
+      text: Buffer.concat(headChunks).toString("utf8"),
+      tables,
+      plaintextBytes,
+      decompressOk,
+      decompressError,
+      // A clean end is required for enumeration to count as complete: a
+      // truncated stream simply has not been looked at.
+      enumerationComplete: reachedEnd && decompressOk && !headOnly,
     });
-    stream.on("end", () => resolve({ text: Buffer.concat(chunks).toString("utf8"), decompressOk, decompressError }));
+
+    stream.on("data", (chunk) => {
+      plaintextBytes += chunk.length;
+      if (headBytes < HEAD_BYTES) {
+        headChunks.push(chunk);
+        headBytes += chunk.length;
+      }
+      if (headOnly) {
+        if (headBytes >= HEAD_BYTES) stream.destroy();
+        return;
+      }
+
+      let str = decoder.write(chunk);
+      if (skippingLongLine) {
+        const nl = str.indexOf("\n");
+        if (nl === -1) return;
+        str = str.slice(nl + 1);
+        skippingLongLine = false;
+      }
+
+      const text = pending + str;
+      const nl = text.lastIndexOf("\n");
+      if (nl === -1) {
+        if (text.length > MAX_LINE) { pending = ""; skippingLongLine = true; }
+        else pending = text;
+        return;
+      }
+      const rest = text.slice(nl + 1);
+      if (rest.length > MAX_LINE) { pending = ""; skippingLongLine = true; }
+      else pending = rest;
+      scanLines(text.slice(0, nl + 1));
+    });
+
+    stream.on("end", () => {
+      if (pending) scanLines(`${pending}\n`);
+      reachedEnd = true;
+      finish();
+    });
+    stream.on("close", () => { if (headOnly) finish(); });
     stream.on("error", (err) => {
-      if (format === "gzip") resolve({ text: Buffer.concat(chunks).toString("utf8"), decompressOk: false, decompressError: err.message });
-      else reject(err);
+      if (format === "gzip") {
+        decompressOk = false;
+        decompressError = decompressError ?? err.message;
+        finish();
+      } else {
+        reject(err);
+      }
     });
   });
 }
 
-export async function verifyBackup(filePath) {
+/**
+ * The shape every early return must also satisfy, so a caller never has to
+ * guess whether a verdict is present. An unreadable artifact is unusable and
+ * its enumeration is inconclusive — stated, not omitted.
+ */
+function unusableResult(filePath, checks, extra = {}) {
+  return {
+    filePath,
+    usable: false,
+    verdict: {
+      gzipIntegrity: "not_applicable",
+      sqlStructure: "unusable",
+      tableEnumeration: "inconclusive",
+      expectedTables: "inconclusive",
+      restoreProof: "NOT_PERFORMED",
+    },
+    detectedDatabaseName: null,
+    sourceServerVersion: null,
+    expectedTableCount: null,
+    foundTableCount: 0,
+    missingTables: /** @type {string[]} */ ([]),
+    missingCriticalTables: /** @type {string[]} */ ([]),
+    unexpectedTables: /** @type {string[]} */ ([]),
+    enumerationComplete: false,
+    checks,
+    ...extra,
+  };
+}
+
+export async function verifyBackup(filePath, { headOnly = false } = {}) {
   const checks = [];
   const add = (name, passed, detail, severity = "error") => checks.push({ name, passed, detail, severity });
 
@@ -122,10 +298,10 @@ export async function verifyBackup(filePath) {
   try {
     stats = await stat(filePath);
   } catch {
-    return { filePath, usable: false, checks: [{ name: "file_exists", passed: false, detail: "File not found or unreadable.", severity: "error" }] };
+    return unusableResult(filePath, [{ name: "file_exists", passed: false, detail: "File not found or unreadable.", severity: "error" }]);
   }
   if (!stats.isFile()) {
-    return { filePath, usable: false, checks: [{ name: "file_exists", passed: false, detail: "Path is not a regular file.", severity: "error" }] };
+    return unusableResult(filePath, [{ name: "file_exists", passed: false, detail: "Path is not a regular file.", severity: "error" }]);
   }
 
   const { sha256, bytes } = await hashAndSize(filePath);
@@ -145,31 +321,75 @@ export async function verifyBackup(filePath) {
     (format === "zstd" ? " Decompress with zstd first; Node has no built-in zstd." : ""));
 
   if (format === "zip" || format === "zstd") {
-    return { filePath, usable: false, sizeBytes: bytes, sha256, format, checks };
+    return unusableResult(filePath, checks, { sizeBytes: bytes, sizeMb: Number((bytes / 1024 / 1024).toFixed(2)), sha256, format });
   }
 
-  const { text, decompressOk, decompressError } = await readPlaintextHead(filePath, format);
+  const { text, tables, plaintextBytes, decompressOk, decompressError, enumerationComplete } =
+    await scanDump(filePath, format, { headOnly });
+
+  // ---- Concern 1: container integrity. Says nothing about SQL contents. ----
   if (format === "gzip") {
-    add("decompression_integrity", decompressOk, decompressOk ? "Full gzip stream decompressed cleanly." : `Decompression failed: ${decompressError}`);
+    add("decompression_integrity", decompressOk, decompressOk
+      ? `Full gzip stream decompressed cleanly (${plaintextBytes} plaintext bytes).`
+      : `Decompression failed: ${decompressError}`);
   }
 
-  add("sql_dump_readable", /CREATE TABLE/i.test(text), /CREATE TABLE/i.test(text)
+  // ---- Concern 2: SQL structural usability. Says nothing about WHICH tables. ----
+  const looksLikeSql = /^[ \t]*CREATE\s+TABLE/im.test(text) || tables.size > 0;
+  add("sql_dump_readable", looksLikeSql, looksLikeSql
     ? "Contains CREATE TABLE statements."
-    : "No CREATE TABLE found in the inspected head — this may be a data-only dump, or not a SQL dump at all.");
+    : "No CREATE TABLE statement found — this may be a data-only dump, or not a SQL dump at all.");
 
+  // ---- Concern 3: expected-table enumeration. Scanned over the WHOLE dump. ----
   const inv = await buildInventory();
   const expected = inv.tables.map((t) => t.table).concat(["schema_migrations"]);
-  const found = expected.filter((t) => new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?\`?${t}\`?`, "i").test(text));
-  const missing = expected.filter((t) => !found.includes(t));
-  add("expected_tables_present", missing.length === 0,
-    `${found.length}/${expected.length} expected tables found in the inspected head.` +
-    (missing.length ? ` Missing: ${missing.join(", ")}.` : ""),
-    missing.length === expected.length ? "error" : "warning");
+  const found = expected.filter((t) => tables.has(t.toLowerCase()));
+  const missing = expected.filter((t) => !tables.has(t.toLowerCase()));
+  const missingCritical = missing.filter((t) => CRITICAL_TABLES.includes(t));
 
-  const dbNameMatch = /(?:CREATE DATABASE[^;]*?|USE )`?(\w+)`?/i.exec(text);
-  add("database_name_detected", Boolean(dbNameMatch), dbNameMatch
-    ? `Dump targets database: ${dbNameMatch[1]}`
-    : "No CREATE DATABASE/USE statement found — the dump is database-agnostic and can be restored into any target name (this is SAFE and preferred).",
+  add("table_enumeration_complete", enumerationComplete, enumerationComplete
+    ? `Enumerated table DDL across the entire artifact (${plaintextBytes} plaintext bytes); the table list below is authoritative.`
+    : headOnly
+      ? "INCONCLUSIVE: --head-only was requested, so only the first 8 MiB was enumerated. mysqldump interleaves DDL with each table's data, so absence here does NOT mean a table is missing."
+      : "INCONCLUSIVE: the stream ended early, so enumeration never reached the end of the dump. Absence below does NOT mean a table is missing.",
+    enumerationComplete ? "info" : "warning");
+
+  if (!enumerationComplete) {
+    // Refusing to grade an enumeration we did not finish. Reporting "44
+    // missing" from a partial scan is how a healthy artifact got 44 false
+    // absences and a passing verdict in the same manifest.
+    add("expected_tables_present", false,
+      `INCONCLUSIVE — not graded. ${found.length}/${expected.length} expected tables were seen before the scan stopped.`,
+      "warning");
+  } else {
+    add("expected_tables_present", missing.length === 0,
+      `${found.length}/${expected.length} expected tables found.` +
+      (missing.length ? ` Missing: ${missing.join(", ")}.` : "") +
+      (missingCritical.length ? ` CRITICAL tables missing: ${missingCritical.join(", ")}. This artifact is not a usable backup of this system.` : ""),
+      // A genuinely-absent critical table is a hard failure. Non-critical
+      // gaps stay a warning: a dump may legitimately predate a migration.
+      missingCritical.length > 0 ? "error" : "warning");
+  }
+
+  const extraTables = [...tables].filter((t) => !expected.some((e) => e.toLowerCase() === t)).sort();
+
+  const dbNameRaw = DB_NAME_STATEMENT.exec(text) ?? DB_NAME_HEADER.exec(text);
+  const dbNameCandidate = dbNameRaw ? (dbNameRaw[1] ?? dbNameRaw[2]) : null;
+  // Fails to null rather than recording something unvalidated: an
+  // unrecognisable value is worse than no value, because it gets copied
+  // into the manifest and read as fact.
+  const detectedDatabaseName =
+    dbNameCandidate && SAFE_DB_IDENTIFIER.test(dbNameCandidate) ? dbNameCandidate : null;
+  add("database_name_detected", true, detectedDatabaseName
+    ? `Dump declares source database: ${detectedDatabaseName}`
+    : "No USE/CREATE DATABASE statement and no dump header naming a database — the dump is database-agnostic and can be restored into any target name (this is SAFE and preferred). Recorded as null.",
+    "info");
+
+  // Everything below reads the dump HEADER only (first 8 MiB). These are
+  // hazard heuristics, not enumeration, and they are labelled as such so a
+  // reader never mistakes their scope for the full-artifact table scan above.
+  add("header_heuristics_scope", true,
+    `DEFINER, routine/trigger, charset, MariaDB-syntax and credential heuristics below were evaluated over the first ${HEAD_BYTES} bytes of plaintext only.`,
     "info");
 
   const serverVersion = /-- Server version\s+(\S+)/i.exec(text)?.[1]
@@ -212,18 +432,47 @@ export async function verifyBackup(filePath) {
     credentialHit ? "error" : "info");
 
   const blocking = checks.filter((c) => c.severity === "error" && !c.passed);
+
+  // Four separate verdicts, because they answer four different questions and
+  // conflating them is what let a manifest say "44 tables missing" and
+  // "usable: true" at once. Nothing here is ever restore proof.
+  const verdict = {
+    gzipIntegrity: format === "gzip" ? (decompressOk ? "pass" : "fail") : "not_applicable",
+    sqlStructure: looksLikeSql && blocking.length === 0 ? "usable" : "unusable",
+    tableEnumeration: enumerationComplete ? "complete" : "inconclusive",
+    expectedTables: !enumerationComplete
+      ? "inconclusive"
+      : missing.length === 0
+        ? "all_present"
+        : missingCritical.length > 0
+          ? "missing_critical"
+          : "missing_noncritical",
+    // Only an actual isolated restore may ever change this, and this tool
+    // does not perform one. It is stated here so a reader of the verdict
+    // block cannot mistake structural checks for restore proof.
+    restoreProof: "NOT_PERFORMED",
+  };
+
   return {
     filePath,
+    // Structural usability only. False whenever a critical expected table is
+    // genuinely absent; may stay true when enumeration is INCONCLUSIVE, in
+    // which case verdict.tableEnumeration says so explicitly.
     usable: blocking.length === 0,
+    verdict,
     sizeBytes: bytes,
     sizeMb: Number((bytes / 1024 / 1024).toFixed(2)),
     sha256,
     format,
-    detectedDatabaseName: dbNameMatch?.[1] ?? null,
+    plaintextBytes,
+    detectedDatabaseName,
     sourceServerVersion: serverVersion,
     expectedTableCount: expected.length,
     foundTableCount: found.length,
     missingTables: missing,
+    missingCriticalTables: missingCritical,
+    unexpectedTables: extraTables,
+    enumerationComplete,
     checks,
   };
 }
@@ -242,6 +491,15 @@ function printReport(result) {
     console.log(`       ${c.detail}`);
   }
   console.log("");
+  if (result.verdict) {
+    console.log("VERDICTS (four separate questions):");
+    console.log(`  gzip integrity:      ${result.verdict.gzipIntegrity}`);
+    console.log(`  SQL structure:       ${result.verdict.sqlStructure}`);
+    console.log(`  table enumeration:   ${result.verdict.tableEnumeration}`);
+    console.log(`  expected tables:     ${result.verdict.expectedTables} (${result.foundTableCount}/${result.expectedTableCount})`);
+    console.log(`  restore proof:       ${result.verdict.restoreProof}`);
+    console.log("");
+  }
   console.log(result.usable
     ? "VERDICT: artifact is structurally usable for an ISOLATED restore test."
     : "VERDICT: artifact FAILED verification. Do not proceed to a restore test.");
@@ -256,7 +514,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const result = await verifyBackup(target);
+  const result = await verifyBackup(target, { headOnly: args.includes("--head-only") });
   if (args.includes("--json")) console.log(JSON.stringify(result, null, 2));
   else printReport(result);
   if (!result.usable) process.exitCode = 1;

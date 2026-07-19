@@ -211,7 +211,7 @@ async function main() {
     manifestKind: "REAL",
     backup: {
       filename: path.basename(result.filePath),
-      backupType: result.foundTableCount > 0 ? "logical dump containing schema" : "logical dump (schema not detected in head)",
+      backupType: result.foundTableCount > 0 ? "logical dump containing schema" : "logical dump (no expected table DDL detected)",
       createdAt: null,
       acquiredAt: new Date().toISOString(),
       sizeBytes: result.sizeBytes,
@@ -232,10 +232,20 @@ async function main() {
       verifiedWith: "scripts/dataset/verify-backup.mjs",
       verifiedAt: new Date().toISOString(),
       checksPassed: result.checks.filter((c) => c.passed).length,
-      checksFailed: result.checks.filter((c) => !c.passed && c.severity === "error").length,
+      // Counts every check that did not pass, not only error-severity ones.
+      // A required table-presence check that failed must never be summarised
+      // as checksFailed: 0 just because it was graded a warning.
+      checksFailed: result.checks.filter((c) => !c.passed).length,
+      checksFailedBlocking: result.checks.filter((c) => !c.passed && c.severity === "error").length,
       expectedTableCount: result.expectedTableCount,
       foundTableCount: result.foundTableCount,
+      // Meaningless unless enumeration completed, so it is reported next to
+      // the flag that says whether it means anything.
+      tableEnumeration: result.verdict?.tableEnumeration ?? "inconclusive",
       missingTables: result.missingTables,
+      missingCriticalTables: result.missingCriticalTables ?? [],
+      unexpectedTables: result.unexpectedTables ?? [],
+      verdict: result.verdict,
       usable: result.usable,
     },
     restoreTest: {

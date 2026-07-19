@@ -16,7 +16,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync, mkdtempSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdtempSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -131,6 +132,270 @@ test("restore script never reads production environment variables", () => {
       `restore script must never expand ${secretVar} — a stray production env must not become the target`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// verify-backup — dump inspection against REALISTIC mariadb-dump output
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a fixture that looks like what mariadb-dump actually emits, not a
+ * tidy list of CREATE TABLE lines. It reproduces every property that broke
+ * the real run: the sandbox preamble, the `-- Host: ... Database: ...`
+ * header, DROP TABLE IF EXISTS before each CREATE, versioned comments, and
+ * — critically — bulk INSERT data INTERLEAVED between table definitions, so
+ * later tables sit far beyond any fixed head window.
+ *
+ * The row data deliberately contains the exact strings that fooled the old
+ * scanner: "ROUNDHOUSE KICK" (which an unanchored /USE (\w+)/i reads as
+ * "USE KICK") and a "CREATE TABLE" mention inside a quoted JSON payload.
+ */
+function buildMariaDbDump(opts: {
+  tables: string[];
+  databaseHeader?: string | null;
+  useStatement?: string | null;
+  padBytesPerTable?: number;
+  qualified?: boolean;
+  lowercase?: boolean;
+}): string {
+  const pad = opts.padBytesPerTable ?? 0;
+  const lines: string[] = [
+    "/*M!999999\\- enable the sandbox mode */ ",
+    "-- MariaDB dump 10.19-11.8.8-MariaDB, for Linux (x86_64)",
+    "--",
+  ];
+  if (opts.databaseHeader !== null) {
+    lines.push(`-- Host: localhost    Database: ${opts.databaseHeader ?? "u350003894_brawl2"}`);
+  }
+  lines.push(
+    "-- ------------------------------------------------------",
+    "-- Server version\t11.8.8-MariaDB-log",
+    "",
+    "/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;",
+    "/*!40101 SET NAMES utf8mb4 */;",
+    "/*M!100616 SET @OLD_NOTE_VERBOSITY=@@NOTE_VERBOSITY, NOTE_VERBOSITY=0 */;",
+    ""
+  );
+  if (opts.useStatement) lines.push(`USE \`${opts.useStatement}\`;`, "");
+
+  opts.tables.forEach((table, i) => {
+    const name = opts.qualified ? `\`u350003894_brawl2\`.\`${table}\`` : `\`${table}\``;
+    const create = opts.lowercase && i % 2 === 1 ? "create table if not exists" : "CREATE TABLE";
+    lines.push(
+      "--",
+      `-- Table structure for table \`${table}\``,
+      "--",
+      "",
+      `DROP TABLE IF EXISTS ${name};`,
+      "/*!40101 SET @saved_cs_client     = @@character_set_client */;",
+      "/*!40101 SET character_set_client = utf8mb4 */;",
+      `${create} ${name} (`,
+      "  `id` char(36) NOT NULL,",
+      "  `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,",
+      "  PRIMARY KEY (`id`)",
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+      "/*!40101 SET character_set_client = @saved_cs_client */;",
+      "",
+      "--",
+      `-- Dumping data for table \`${table}\``,
+      "--",
+      "",
+      `LOCK TABLES \`${table}\` WRITE;`,
+      `/*!40000 ALTER TABLE \`${table}\` DISABLE KEYS */;`
+    );
+
+    // One bulk INSERT written as a single enormous line, exactly as
+    // mariadb-dump does with extended inserts. This is what pushes the next
+    // table's DDL out of any head window.
+    const payload =
+      '{\\"gadgets\\":[{\\"id\\":23000464,\\"name\\":\\"ROUNDHOUSE KICK\\"}],' +
+      '\\"note\\":\\"CREATE TABLE `not_a_real_table` should never be enumerated\\"}';
+    const filler = pad > 0 ? "x".repeat(pad) : "";
+    lines.push(
+      `INSERT INTO \`${table}\` VALUES ('row-${i}','${payload}${filler}');`,
+      `/*!40000 ALTER TABLE \`${table}\` ENABLE KEYS */;`,
+      "UNLOCK TABLES;",
+      ""
+    );
+  });
+
+  lines.push("-- Dump completed on 2026-07-18  5:58:47", "");
+  return lines.join("\n");
+}
+
+function writeGzFixture(sql: string, name = "dump.sql.gz"): string {
+  const file = path.join(mkdtempSync(path.join(tmpdir(), "dump-fixture-")), name);
+  writeFileSync(file, gzipSync(Buffer.from(sql, "utf8")));
+  return file;
+}
+
+/** The repository's own expected table list, so fixtures stay in sync with migrations. */
+async function expectedTables(): Promise<string[]> {
+  const { buildInventory } = await import("../scripts/dataset/schema-inventory.mjs");
+  const inv = await buildInventory();
+  return inv.tables.map((t: { table: string }) => t.table).concat(["schema_migrations"]);
+}
+
+test("verify-backup enumerates tables whose DDL lies far beyond the header window", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = await expectedTables();
+
+  // ~1 MiB of row data per table pushes the last tables hundreds of MiB in —
+  // the exact shape of the real 293 MB artifact, where a head-only scan saw
+  // 2 of 46 tables and reported the other 44 as missing.
+  const file = writeGzFixture(buildMariaDbDump({ tables, padBytesPerTable: 1024 * 1024 }));
+  const result = await verifyBackup(file);
+
+  assert.equal(result.foundTableCount, tables.length, "every table must be found regardless of dump size");
+  assert.deepEqual(result.missingTables, [], "a complete dump must report nothing missing");
+  assert.equal(result.enumerationComplete, true);
+  assert.equal(result.verdict.tableEnumeration, "complete");
+  assert.equal(result.verdict.expectedTables, "all_present");
+  assert.equal(result.usable, true);
+});
+
+test("verify-backup handles the DDL spellings a real dump can contain", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = await expectedTables();
+
+  // Database-qualified names plus alternating lowercase
+  // "create table if not exists" — both legal, neither matched by the old
+  // fixed `CREATE TABLE (?:IF NOT EXISTS )?` pattern in every position.
+  const file = writeGzFixture(buildMariaDbDump({ tables, qualified: true, lowercase: true }));
+  const result = await verifyBackup(file);
+
+  assert.deepEqual(result.missingTables, [], "qualified and lowercase DDL must still enumerate");
+  assert.equal(result.foundTableCount, tables.length);
+});
+
+test("verify-backup never enumerates a table name that only appears inside row data", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = await expectedTables();
+  const file = writeGzFixture(buildMariaDbDump({ tables }));
+  const result = await verifyBackup(file);
+
+  // The fixture's INSERT payload contains "CREATE TABLE `not_a_real_table`".
+  assert.ok(
+    !result.unexpectedTables.includes("not_a_real_table"),
+    "DDL inside quoted row data must not be mistaken for schema"
+  );
+});
+
+test("verify-backup reads the database name from the dump, never from row data", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = await expectedTables();
+
+  // Regression: row data containing "ROUNDHOUSE KICK" once produced
+  // source.databaseName = "KICK" via an unanchored /USE (\w+)/i.
+  const fromHeader = await verifyBackup(writeGzFixture(buildMariaDbDump({ tables })));
+  assert.equal(fromHeader.detectedDatabaseName, "u350003894_brawl2");
+  assert.notEqual(fromHeader.detectedDatabaseName, "KICK");
+
+  // A real USE statement is authoritative when present.
+  const fromUse = await verifyBackup(
+    writeGzFixture(buildMariaDbDump({ tables, useStatement: "brawlranks_restoretest_ci" }))
+  );
+  assert.equal(fromUse.detectedDatabaseName, "brawlranks_restoretest_ci");
+
+  // With neither, the label must be null — not a word scraped out of a row.
+  const anonymous = await verifyBackup(
+    writeGzFixture(buildMariaDbDump({ tables, databaseHeader: null }))
+  );
+  assert.equal(anonymous.detectedDatabaseName, null, "an undeclared database must be null, never guessed");
+});
+
+test("verify-backup refuses to call an artifact usable when critical tables are absent", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = (await expectedTables()).filter((t) => t !== "normalized_battles" && t !== "battle_participants");
+
+  const result = await verifyBackup(writeGzFixture(buildMariaDbDump({ tables })));
+
+  assert.equal(result.usable, false, "genuinely absent critical tables must fail the verdict");
+  assert.equal(result.verdict.expectedTables, "missing_critical");
+  assert.deepEqual(result.missingCriticalTables.sort(), ["battle_participants", "normalized_battles"]);
+
+  const tableCheck = result.checks.find((c: { name: string }) => c.name === "expected_tables_present");
+  assert.equal(tableCheck.passed, false);
+  assert.equal(tableCheck.severity, "error", "a missing critical table is not a warning");
+});
+
+test("verify-backup grades a non-critical gap as a warning, not a failure", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = (await expectedTables()).filter((t) => t !== "brawler_aliases");
+
+  const result = await verifyBackup(writeGzFixture(buildMariaDbDump({ tables })));
+
+  assert.equal(result.verdict.expectedTables, "missing_noncritical");
+  assert.deepEqual(result.missingTables, ["brawler_aliases"]);
+  assert.equal(result.usable, true, "a dump predating one non-critical migration is still structurally usable");
+});
+
+test("verify-backup marks a head-only scan inconclusive instead of reporting absences", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const tables = await expectedTables();
+  const file = writeGzFixture(buildMariaDbDump({ tables, padBytesPerTable: 1024 * 1024 }));
+
+  const result = await verifyBackup(file, { headOnly: true });
+
+  // This is the ONLY circumstance in which the tool may leave an artifact
+  // structurally usable while not having seen every table.
+  assert.equal(result.enumerationComplete, false);
+  assert.equal(result.verdict.tableEnumeration, "inconclusive");
+  assert.equal(result.verdict.expectedTables, "inconclusive");
+
+  const tableCheck = result.checks.find((c: { name: string }) => c.name === "expected_tables_present");
+  assert.equal(tableCheck.passed, false, "an ungraded check must not be recorded as passing");
+  assert.match(tableCheck.detail, /INCONCLUSIVE/);
+});
+
+test("verify-backup keeps the four verdicts separate and never claims restore proof", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const result = await verifyBackup(writeGzFixture(buildMariaDbDump({ tables: await expectedTables() })));
+
+  assert.equal(result.verdict.gzipIntegrity, "pass");
+  assert.equal(result.verdict.sqlStructure, "usable");
+  assert.equal(result.verdict.tableEnumeration, "complete");
+  assert.equal(result.verdict.expectedTables, "all_present");
+  assert.equal(result.verdict.restoreProof, "NOT_PERFORMED", "no static check may ever imply a restore happened");
+});
+
+test("verify-backup reports corrupt gzip as an integrity failure, not a schema failure", async () => {
+  const { verifyBackup } = await import("../scripts/dataset/verify-backup.mjs");
+  const good = gzipSync(Buffer.from(buildMariaDbDump({ tables: await expectedTables() }), "utf8"));
+  // Truncating mid-stream is the realistic corruption: a partial download.
+  const file = path.join(mkdtempSync(path.join(tmpdir(), "dump-fixture-")), "truncated.sql.gz");
+  writeFileSync(file, good.subarray(0, Math.floor(good.length / 2)));
+
+  const result = await verifyBackup(file);
+
+  assert.equal(result.verdict.gzipIntegrity, "fail");
+  assert.equal(result.usable, false);
+  // Enumeration stopped early, so it must be inconclusive rather than
+  // claiming the tables it never reached are missing.
+  assert.equal(result.verdict.tableEnumeration, "inconclusive");
+  assert.equal(result.verdict.expectedTables, "inconclusive");
+});
+
+test("a generated manifest never reports checksFailed 0 alongside a failed table check", async () => {
+  const tables = (await expectedTables()).filter((t) => t !== "normalized_battles");
+  const file = writeGzFixture(buildMariaDbDump({ tables }));
+  const out = path.join(path.dirname(file), "manifest.json");
+
+  try {
+    execFileSync(
+      "node",
+      [path.join(SCRIPTS_DIR, "create-backup-manifest.mjs"), file, "--operator", "test", "--out", out],
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+    );
+  } catch {
+    // A non-zero exit is acceptable here; the manifest content is the assertion.
+  }
+
+  const manifest = JSON.parse(readFileSync(out, "utf8"));
+  assert.ok(manifest.verification.checksFailed > 0, "a failed table-presence check must be counted");
+  assert.equal(manifest.verification.usable, false);
+  assert.equal(manifest.verification.verdict.expectedTables, "missing_critical");
+  assert.notEqual(manifest.source.databaseName, "KICK");
 });
 
 // ---------------------------------------------------------------------------
