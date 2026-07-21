@@ -27,7 +27,7 @@
  *    every tag before it's ever written to observed_players.
  */
 
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import * as ingestionRepo from "@/lib/ingestion/repository";
 import type { UnpromotedObservedPlayer } from "@/lib/ingestion/repository";
 import { DEFAULT_DISCOVERY_PROMOTION_BATCH_SIZE } from "@/lib/ingestion/config";
@@ -111,7 +111,7 @@ export async function runPlayerDiscovery(
   triggeredBy: "manual" | "cron",
   batchSize: number = DEFAULT_DISCOVERY_PROMOTION_BATCH_SIZE
 ): Promise<PlayerDiscoveryResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   const workflowRunId = await startWorkflowRun(pool, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
 

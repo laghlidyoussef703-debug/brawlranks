@@ -6,7 +6,7 @@
  * deletes the existing seed pool (Section 7's explicit rule).
  */
 
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
 import { fetchRankingsFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validatePlayerRankingItems } from "@/lib/ingestion/schemas";
@@ -45,7 +45,7 @@ export async function runRankingSeedSync(
   regions: string[] = INITIAL_RANKING_REGIONS,
   triggeredByActor?: string
 ): Promise<RankingSeedSyncResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
 
   const dataSource = await catalogRepo.getDataSourceByName(pool, DATA_SOURCE_NAME);

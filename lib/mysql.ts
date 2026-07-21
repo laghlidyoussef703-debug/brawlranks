@@ -6,13 +6,14 @@ import mysql, { type Pool, type PoolOptions } from "mysql2/promise";
  * Never import this file from a Client Component or expose it via any
  * client-reachable code path — see BRAWLRANKS_WEBSITE_SPEC.md Section 24.7.
  *
- * BACKWARD COMPATIBILITY (DATASET Phase 3 / WP-C):
- *   `getPool()` is unchanged — it is still the single legacy pool every
- *   existing caller uses, built from DB_HOST/DB_PORT/DB_NAME/DB_USER/
- *   BRAWL_DB_SECRET_V1 with connectionLimit 2. No existing caller is switched
- *   to anything else by this change.
+ * BACKWARD COMPATIBILITY (DATASET Phase 9):
+ *   `getPool()` remains the legacy singleton built from DB_HOST/DB_PORT/
+ *   DB_NAME/DB_USER/BRAWL_DB_SECRET_V1 with connectionLimit 2. Operational
+ *   callers use getWritePool() and public snapshot callers use getReadPool();
+ *   both role getters return this exact legacy singleton until their role
+ *   variables are deliberately populated.
  *
- *   `getReadPool()` / `getWritePool()` are NEW, additive, and role-aware. Each
+ *   `getReadPool()` / `getWritePool()` are additive and role-aware. Each
  *   resolves from READ_DB_* / WRITE_DB_* respectively, and FALLS BACK to the
  *   legacy DB_* config when the role variables are not set. When a role is not
  *   configured, the role getter returns the SAME legacy singleton getPool()
@@ -27,11 +28,8 @@ import mysql, { type Pool, type PoolOptions } from "mysql2/promise";
  */
 
 declare global {
-  // eslint-disable-next-line no-var
   var __brawlranksMysqlPool: Pool | undefined;
-  // eslint-disable-next-line no-var
   var __brawlranksReadPool: Pool | undefined;
-  // eslint-disable-next-line no-var
   var __brawlranksWritePool: Pool | undefined;
 }
 
@@ -63,6 +61,18 @@ export interface ResolvedDbConfig {
   password: string;
   connectionLimit: number;
   tls: DbTlsIntent | null;
+}
+
+export interface SafeDbRoleDescription {
+  role: DbRole;
+  source: "role" | "legacy";
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  connectionLimit: number;
+  tlsEnabled: boolean;
+  tlsVerified: boolean;
 }
 
 type Env = Record<string, string | undefined>;
@@ -139,7 +149,7 @@ function resolveLegacyConfig(role: DbRole, env: Env): ResolvedDbConfig {
  * Resolves the connection config for a role. Pure (no filesystem, no network),
  * so it is fully unit-testable.
  *
- * A role is "active" when its own `${PREFIX}HOST` is set. When active, ALL of
+ * A role is "active" when any of its own `${PREFIX}*` variables is set. When active, ALL of
  * HOST/NAME/USER/SECRET for that role must be present — a partial role config
  * fails fast rather than silently borrowing legacy values (which could point
  * writes at the wrong database). When the role is not active, the legacy DB_*
@@ -149,7 +159,9 @@ export function resolveRoleDbConfig(role: DbRole, env: Env = process.env): Resol
   const prefix = role === "read" ? "READ_DB_" : "WRITE_DB_";
 
   const host = env[`${prefix}HOST`];
-  if (!host) {
+  const roleKeys = ["HOST", "PORT", "NAME", "USER", "SECRET", "POOL_SIZE", "CA_PATH", "CA", "SSL", "SSL_REJECT_UNAUTHORIZED"];
+  const roleIsPresent = roleKeys.some((key) => (env[`${prefix}${key}`] ?? "") !== "");
+  if (!roleIsPresent) {
     // Role not configured — fall back to the legacy single-DB config.
     return resolveLegacyConfig(role, env);
   }
@@ -158,12 +170,13 @@ export function resolveRoleDbConfig(role: DbRole, env: Env = process.env): Resol
   const user = env[`${prefix}USER`];
   const password = env[`${prefix}SECRET`];
   const missing: string[] = [];
+  if (!host) missing.push(`${prefix}HOST`);
   if (!database) missing.push(`${prefix}NAME`);
   if (!user) missing.push(`${prefix}USER`);
   if (!password) missing.push(`${prefix}SECRET`);
   if (missing.length > 0) {
     throw new Error(
-      `${prefix}HOST is set but the ${role} role is incompletely configured (missing ${missing.join(", ")}). ` +
+      `The ${role} role is incompletely configured (missing ${missing.join(", ")}). ` +
         "A partial role configuration is refused so writes/reads cannot silently target the wrong database."
     );
   }
@@ -171,7 +184,7 @@ export function resolveRoleDbConfig(role: DbRole, env: Env = process.env): Resol
   return {
     role,
     source: "role",
-    host,
+    host: host!,
     port: parsePort(env[`${prefix}PORT`]),
     database: database!,
     user: user!,
@@ -179,6 +192,27 @@ export function resolveRoleDbConfig(role: DbRole, env: Env = process.env): Resol
     connectionLimit: parsePoolSize(env[`${prefix}POOL_SIZE`], 2),
     tls: resolveTls(prefix, env),
   };
+}
+
+/** A credential-free description suitable for startup diagnostics and operator reports. */
+export function describeDbRole(role: DbRole, env: Env = process.env): SafeDbRoleDescription {
+  const config = resolveRoleDbConfig(role, env);
+  return {
+    role,
+    source: config.source,
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+    connectionLimit: config.connectionLimit,
+    tlsEnabled: config.tls !== null,
+    tlsVerified: config.tls?.rejectUnauthorized ?? false,
+  };
+}
+
+/** Pure diagnostic used by deployment checks: only two legacy fallbacks share one pool. */
+export function rolesReuseLegacyPool(env: Env = process.env): boolean {
+  return resolveRoleDbConfig("read", env).source === "legacy" && resolveRoleDbConfig("write", env).source === "legacy";
 }
 
 /** Materializes a mysql2 `ssl` option from TLS intent (reads a CA file here). */
@@ -251,9 +285,9 @@ export function getReadPool(): Pool {
 
 /**
  * Write-role pool. Returns a dedicated pool built from WRITE_DB_* when that
- * role is configured; otherwise returns the legacy getPool(). Intended for
- * operational writes/workflows once a separate write endpoint exists
- * (DATASET Phase 10) — no existing caller is switched now.
+ * role is configured; otherwise returns the legacy getPool(). Operational
+ * writes/workflows call this now, but fallback makes that routing inert until
+ * an operator deliberately configures a separate endpoint.
  */
 export function getWritePool(): Pool {
   const config = resolveRoleDbConfig("write", process.env);
@@ -262,6 +296,22 @@ export function getWritePool(): Pool {
     globalThis.__brawlranksWritePool = buildPool(config);
   }
   return globalThis.__brawlranksWritePool;
+}
+
+export function getPoolForRole(role: DbRole): Pool {
+  return role === "read" ? getReadPool() : getWritePool();
+}
+
+/** Connection-only role health check. It does not inspect or mutate application data. */
+export async function checkDbRoleConnection(role: DbRole): Promise<SafeDbRoleDescription & { ok: true }> {
+  const description = describeDbRole(role);
+  const connection = await getPoolForRole(role).getConnection();
+  try {
+    await connection.query("SELECT 1");
+    return { ...description, ok: true };
+  } finally {
+    connection.release();
+  }
 }
 
 /**

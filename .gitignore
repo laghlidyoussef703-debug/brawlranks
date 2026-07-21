@@ -25,6 +25,8 @@ yarn-error.log*
 # env files (never commit real secrets)
 .env
 .env*.local
+.migration-sync-state/
+phase8-validation-report.json
 .env.production
 .env.development
 

@@ -8,7 +8,7 @@
  */
 
 import type { Pool } from "mysql2/promise";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { RETENTION_DAYS, RETENTION_BATCH_SIZE } from "@/lib/ingestion/retention";
 import * as rq from "@/lib/ingestion/retentionQueries";
 import {
@@ -72,7 +72,7 @@ export async function runRetentionSweep(
   triggeredBy: "manual" | "cron",
   dryRun: boolean = false
 ): Promise<RetentionSweepResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   const workflowRunId = await startWorkflowRun(pool, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
 

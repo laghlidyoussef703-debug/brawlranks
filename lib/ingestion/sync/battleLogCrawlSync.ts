@@ -14,7 +14,7 @@
  */
 
 import type { PoolConnection } from "mysql2/promise";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
 import { fetchPlayerBattleLogFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validateBattleLogItems, type ValidatedBattleItem } from "@/lib/ingestion/schemas";
@@ -177,7 +177,7 @@ export async function runBattleLogCrawlBatch(
   triggeredBy: "manual" | "cron",
   batchSize: number = DEFAULT_CRAWL_BATCH_SIZE
 ): Promise<BattleLogCrawlResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
 
   const dataSource = await catalogRepo.getDataSourceByName(pool, DATA_SOURCE_NAME);

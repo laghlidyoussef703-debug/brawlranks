@@ -26,8 +26,11 @@ const REPO_ROOT = path.join(__dirname, "..", "..");
 const DATASET_UNIT_TESTS = [
   "tests/datasetMysql84Compat.test.ts",
   "tests/datasetDbRoles.test.ts",
+  "tests/datasetDbRoleRouting.test.ts",
+  "tests/datasetMigrationPhase8.test.ts",
   "tests/datasetArchive.test.ts",
   "tests/datasetArchiveRouteAuth.test.ts",
+  "tests/migrationTlsConfig.test.ts",
 ];
 
 // Only run tests that exist, so this stays green as the suite grows.

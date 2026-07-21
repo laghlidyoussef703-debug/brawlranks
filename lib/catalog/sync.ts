@@ -18,7 +18,7 @@
  * happen inside the single transaction described above.
  */
 
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { sha256Hex, stableStringify } from "@/lib/hash";
 import { fetchBrawlersFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { validateBrawlersPayload } from "@/lib/catalog/schema";
@@ -67,7 +67,7 @@ export async function runCatalogSync(
   triggeredBy: "manual" | "cron",
   triggeredByActor?: string
 ): Promise<CatalogSyncResult> {
-  const pool = getPool();
+  const pool = getWritePool();
 
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "data_sync");
 

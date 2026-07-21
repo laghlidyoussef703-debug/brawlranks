@@ -4,7 +4,7 @@ import type { ResultSetHeader } from "mysql2";
 import { verifyInternalCronBearer } from "@/lib/auth";
 import { fetchBrawlersFromProxy, validateProxyEnvelope } from "@/lib/proxy";
 import { stableStringify, sha256Hex } from "@/lib/hash";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
 // Node.js runtime required: this route uses mysql2 and node:crypto.
@@ -21,7 +21,7 @@ async function insertSnapshot(params: {
   payloadHash: string;
   fetchedAt: Date;
 }): Promise<number> {
-  const pool = getPool();
+  const pool = getWritePool();
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO api_test_snapshots
        (source, endpoint, http_status, payload, payload_hash, fetched_at, received_at, run_id)

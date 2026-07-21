@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
 /**
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const pool = getPool();
+    const pool = getWritePool();
 
     const [[activeBrawlerCount]] = await pool.query<CountRow[]>(
       "SELECT COUNT(*) AS count FROM canonical_brawlers WHERE is_active = 1"

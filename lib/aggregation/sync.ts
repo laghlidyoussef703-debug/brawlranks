@@ -39,7 +39,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolConnection } from "mysql2/promise";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import * as aggRepo from "@/lib/aggregation/repository";
 import { logSafeInfo } from "@/lib/errors";
 import {
@@ -244,7 +244,7 @@ export async function stepAggregation(
   triggeredBy: "manual" | "cron",
   batchSize: number = DEFAULT_AGGREGATION_BATCH_SIZE
 ): Promise<AggregationStepResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 
@@ -283,7 +283,7 @@ export async function runAggregation(
   triggeredBy: "manual" | "cron",
   batchSize: number = DEFAULT_AGGREGATION_BATCH_SIZE
 ): Promise<AggregationResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 

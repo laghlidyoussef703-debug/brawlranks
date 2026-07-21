@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import mysql2Package from "mysql2/package.json";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
 // Node.js runtime required: this route uses mysql2 and node:net.
@@ -119,7 +119,7 @@ export async function GET(request: Request) {
   };
 
   try {
-    const pool = getPool();
+    const pool = getWritePool();
     const [rows] = await pool.query<ConnectionCheckRow[]>(
       `SELECT CURRENT_USER() AS currentUser,
               USER() AS authenticatedAs,
