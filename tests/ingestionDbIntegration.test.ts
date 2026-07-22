@@ -7,6 +7,7 @@
  * database that has already run `npm run migrate:up` and the seed scripts.
  */
 import { test } from "node:test";
+import { closeSharedDbPoolAfterTests } from "./helpers/closeDbPool";
 import assert from "node:assert/strict";
 
 const hasDbEnv = Boolean(
@@ -14,6 +15,8 @@ const hasDbEnv = Boolean(
 );
 const skip = !hasDbEnv;
 const skipReason = "No DB credentials in this environment (DB_HOST/DB_NAME/DB_USER/BRAWL_DB_SECRET_V1 unset).";
+
+closeSharedDbPoolAfterTests();
 
 test("db: ingestion_rate_budgets consumption is atomic and stops exactly at the ceiling", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");

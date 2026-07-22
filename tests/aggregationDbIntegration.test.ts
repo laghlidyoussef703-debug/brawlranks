@@ -7,6 +7,7 @@
  * with a reachable, migrated (through 0022) database.
  */
 import { test } from "node:test";
+import { closeSharedDbPoolAfterTests } from "./helpers/closeDbPool";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -15,6 +16,8 @@ const hasDbEnv = Boolean(
 );
 const skip = !hasDbEnv;
 const skipReason = "No DB credentials in this environment (DB_HOST/DB_NAME/DB_USER/BRAWL_DB_SECRET_V1 unset).";
+
+closeSharedDbPoolAfterTests();
 
 /**
  * Builds a small, fully controlled scenario: two canonical Brawlers, one

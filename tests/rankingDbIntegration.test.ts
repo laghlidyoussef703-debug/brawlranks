@@ -18,6 +18,7 @@
  * DB-level uniqueness, and floor/tier consistency.
  */
 import { test } from "node:test";
+import { closeSharedDbPoolAfterTests } from "./helpers/closeDbPool";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -26,6 +27,8 @@ const hasDbEnv = Boolean(
 );
 const skip = !hasDbEnv;
 const skipReason = "No DB credentials in this environment (DB_HOST/DB_NAME/DB_USER/BRAWL_DB_SECRET_V1 unset).";
+
+closeSharedDbPoolAfterTests();
 
 const VALID_OUTCOMES = ["published", "held_mass_movement", "no_significant_change", "no_valid_aggregation", "no_active_rule_set"];
 
