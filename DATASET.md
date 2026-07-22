@@ -439,6 +439,8 @@ Rollback is simply to discard the target import; the source and collectors were 
 
 Phase 8 must support selecting a **safe cutoff / activation watermark** (see Phase 9) and may migrate only what is required for continuity, dependencies, current publication state, active workflows, current catalog/rules, and rollback.
 
+**Implementation status (Tier-1 scope).** *Implemented in repo:* the migration CLI now has an explicit, centralized `--scope tier-1` (alias `continuity`) defined in `scripts/dataset-migration/scope.ts`, distinct from `--scope all`. Tier-1 selects only the continuity manifest below, copies the current published snapshot via `reconcileCurrentPublication` (dependency-expanded, not full history), runs a scoped reconciliation limited to in-scope tables, and binds each `--state-dir` to one scope so Tier-1 cursors can never be reused for a full-history pass (fail-closed). Unknown scope names are rejected. *Local validation available:* `npm run migration:scope-preview` (or `tsx scripts/dataset-migration/cli.ts scope-preview --scope tier-1`) runs a credential-free synthetic self-check of scope resolution, manifest determinism, dependency order, state-dir binding, no-advance-on-page-failure, and dry-run no-mutation; unit tests cover the same in `tests/datasetMigrationPhase8.test.ts`. *Production proof still pending:* no Tier-1 dry-run or apply has been run against the real source/target; the non-loss workflow is not yet validated in production. This is **not** a claim that Phase 8 is complete.
+
 ### Table classification for cutover scope
 
 Classify every table family into one of three tiers. Only tier 1 must be reconciled before writer cutover.

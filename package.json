@@ -18,6 +18,7 @@
     "phase6:audit": "node scripts/dataset/phase6-target-audit.mjs",
     "test:phase6": "tsx --test tests/migrationTlsConfig.test.ts tests/phase6RestoreStream.test.ts",
     "migration:sync": "tsx scripts/dataset-migration/cli.ts",
+    "migration:scope-preview": "tsx scripts/dataset-migration/cli.ts scope-preview --scope tier-1",
     "test:phase8-9": "tsx --test tests/datasetMigrationPhase8.test.ts tests/datasetDbRoles.test.ts tests/datasetDbRoleRouting.test.ts tests/datasetMysql84Compat.test.ts",
     "seed:catalog-source": "node scripts/seed-catalog-source.mjs",
     "seed:ingestion-sources": "node scripts/seed-ingestion-sources.mjs",
