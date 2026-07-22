@@ -112,8 +112,17 @@ test("db: two concurrent ranking-rebuild runs never both acquire the workflow lo
 
   const [a, b] = await Promise.all([runRankingRebuild("manual"), runRankingRebuild("manual")]);
   const outcomes = [a.outcome, b.outcome];
-  assert.ok(outcomes.includes("lock_not_acquired"), "exactly one of two concurrent calls must be lock-rejected");
-  for (const o of outcomes) assert.ok(VALID_OUTCOMES.includes(o), `unexpected outcome: ${o}`);
+  // Order-independent: exactly one call must be lock-rejected, and exactly one
+  // must acquire the lock and finish with a valid completed outcome from the
+  // production RankingOutcome contract. VALID_OUTCOMES deliberately excludes
+  // lock_not_acquired, so it must only be applied to the completed call. This
+  // does not weaken the lock invariant — it tightens "at least one lock
+  // rejection" to "exactly one".
+  const lockRejected = outcomes.filter((o) => o === "lock_not_acquired");
+  const completed = outcomes.filter((o) => o !== "lock_not_acquired");
+  assert.equal(lockRejected.length, 1, "exactly one of two concurrent calls must be lock-rejected");
+  assert.equal(completed.length, 1, "exactly one of two concurrent calls must acquire the lock and complete the rebuild");
+  assert.ok(VALID_OUTCOMES.includes(completed[0]), `unexpected completed outcome: ${completed[0]}`);
 });
 
 test("db: runRankingRebuild against real data returns a well-formed outcome and, when it ran, always writes append-only candidate rows for that run", { skip: skip ? skipReason : false }, async () => {
