@@ -8,7 +8,7 @@ import { getWritePool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
 import { fetchPlayerFromProxy } from "@/lib/proxy";
 import { validatePlayerPayload } from "@/lib/ingestion/schemas";
-import { classifyHttpStatus, decideRetry } from "@/lib/ingestion/retry";
+import { classifyProxyFailure, decideRetry } from "@/lib/ingestion/retry";
 import { tryConsumeBudget } from "@/lib/ingestion/rateBudget";
 import { validateAndNormalizeTag, encodeTagForPath } from "@/lib/ingestion/tags";
 import { computeIncidentSignature } from "@/lib/ingestion/incidents";
@@ -75,13 +75,30 @@ export async function syncOnePlayerProfile(
   const proxyResult = await fetchPlayerFromProxy(encodeTagForPath(tag));
 
   if (!proxyResult.proxyReached || proxyResult.httpStatus !== 200) {
-    const code = classifyHttpStatus(proxyResult.httpStatus, proxyResult.transportError);
+    // The proxy returns its OWN outer status (502 for ANY upstream error) and
+    // wraps the official-API status in the body as
+    // { error: "upstream_api_error", upstreamStatus: N }. Classify from the
+    // UPSTREAM status when present, so an official-API 404 wrapped in a proxy
+    // 502 is treated as the canonical not_found — not server_error — and the
+    // stale/invalid tag is marked unreachable instead of being retried forever.
+    const { code, upstreamStatus } = classifyProxyFailure(
+      proxyResult.httpStatus,
+      proxyResult.transportError,
+      proxyResult.body
+    );
     const decision = decideRetry(code, 1);
 
     await catalogRepo.completeFetchRun(pool, fetchRunId, {
       status: decision.terminalStatus === "dead" && !decision.shouldRetry ? "failed" : "failed",
+      // Preserve BOTH status layers: the proxy's outer HTTP status stays in
+      // http_status; the upstream official-API status is recorded in
+      // error_message so a 404 wrapped in a 502 is never lost.
       httpStatus: proxyResult.httpStatus,
       errorCode: code,
+      errorMessage:
+        upstreamStatus !== null
+          ? `proxy_status=${proxyResult.httpStatus ?? "null"} upstream_api_error upstream_status=${upstreamStatus}`
+          : undefined,
       changesDetectedCount: 0,
       durationMs: 0,
     });

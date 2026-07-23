@@ -59,6 +59,44 @@ export function classifyHttpStatus(status: number | null, transportError?: strin
   return "invalid_data";
 }
 
+/**
+ * Extracts the upstream official-API HTTP status from a proxy error envelope
+ * of the shape `{ error: "upstream_api_error", upstreamStatus: N }`. Returns
+ * null when the body is not such an envelope (a genuine proxy/transport failure).
+ */
+export function extractUpstreamApiErrorStatus(body: unknown): number | null {
+  if (body === null || typeof body !== "object") return null;
+  const b = body as { error?: unknown; upstreamStatus?: unknown };
+  return b.error === "upstream_api_error" && typeof b.upstreamStatus === "number" ? b.upstreamStatus : null;
+}
+
+/**
+ * Classifies a FAILED proxy fetch.
+ *
+ * proxy.brawlranks.com returns its OWN outer HTTP status — 502 for ANY upstream
+ * error — and wraps the official Brawl Stars API's real status in the JSON body
+ * as `{ ok: false, error: "upstream_api_error", upstreamStatus: N }`. When that
+ * envelope is present the UPSTREAM status is authoritative: an official-API 404
+ * wrapped in a proxy 502 must classify as `not_found` (the canonical
+ * player-not-found outcome), never `server_error`. Without the envelope (a
+ * genuine proxy/transport failure) the outer status/transport error is used, so
+ * a real proxy 502 stays `server_error`.
+ *
+ * Returns the effective code AND the upstream status (or null) so callers can
+ * persist BOTH layers (proxy http_status + upstream official-API status).
+ */
+export function classifyProxyFailure(
+  proxyHttpStatus: number | null,
+  transportError: string | undefined,
+  body: unknown
+): { code: FailureCode; upstreamStatus: number | null } {
+  const upstreamStatus = extractUpstreamApiErrorStatus(body);
+  if (upstreamStatus !== null) {
+    return { code: classifyHttpStatus(upstreamStatus, undefined), upstreamStatus };
+  }
+  return { code: classifyHttpStatus(proxyHttpStatus, transportError), upstreamStatus: null };
+}
+
 export function classifyMysqlError(error: unknown): FailureCode {
   const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: string }).code : undefined;
   if (code === "ER_LOCK_DEADLOCK") return "deadlock";
