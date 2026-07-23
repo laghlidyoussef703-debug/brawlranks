@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
 /**
@@ -39,7 +39,7 @@ interface CountRow extends RowDataPacket {
   count: number;
 }
 
-async function scalar(pool: ReturnType<typeof getPool>, sql: string, params: unknown[] = []): Promise<number> {
+async function scalar(pool: ReturnType<typeof getWritePool>, sql: string, params: unknown[] = []): Promise<number> {
   const [rows] = await pool.query<CountRow[]>(sql, params);
   return rows[0]?.count ?? 0;
 }
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const pool = getPool();
+    const pool = getWritePool();
 
     const totalBattles = await scalar(pool, "SELECT COUNT(*) AS count FROM normalized_battles");
     const recentBattles = await scalar(

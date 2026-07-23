@@ -9,6 +9,7 @@
  * developer machine with a local .env).
  */
 import { test } from "node:test";
+import { closeSharedDbPoolAfterTests } from "./helpers/closeDbPool";
 import assert from "node:assert/strict";
 
 const hasDbEnv = Boolean(
@@ -20,6 +21,8 @@ const hasDbEnv = Boolean(
 
 const skip = !hasDbEnv;
 const skipReason = "No DB credentials in this environment (DB_HOST/DB_NAME/DB_USER/BRAWL_DB_SECRET_V1 unset).";
+
+closeSharedDbPoolAfterTests();
 
 test("db: migration runner applies all migrations idempotently (running twice is a no-op the 2nd time)", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");

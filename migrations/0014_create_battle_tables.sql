@@ -65,7 +65,15 @@ CREATE TABLE battle_teams (
   battle_id CHAR(36) NOT NULL,
   team_index INT NOT NULL,
   result VARCHAR(10) NOT NULL DEFAULT 'unknown',
-  rank INT NULL,
+  -- `rank` is a reserved word in MySQL 8.0+ (window functions) and MUST be
+  -- backtick-quoted or CREATE TABLE fails with a syntax error on MySQL 8.4.
+  -- MariaDB accepts it unquoted, which is why production (MariaDB) never hit
+  -- this. Backticks are purely lexical: the resulting column is byte-identical
+  -- on both engines. This edit changes the file's checksum; existing MariaDB
+  -- environments that recorded the pre-edit checksum are reconciled by the
+  -- explicit ACCEPTED_PRIOR_CHECKSUMS allowlist in scripts/migrate.mjs — the
+  -- checksum guard is NOT silently weakened. See DATASET Phase 3.
+  `rank` INT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
   UNIQUE KEY uniq_battle_teams_battle_index (battle_id, team_index),

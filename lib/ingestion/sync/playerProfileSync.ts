@@ -4,7 +4,7 @@
  * allows it, marks the player unreachable; a transient failure never does.
  */
 
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
 import { fetchPlayerFromProxy } from "@/lib/proxy";
 import { validatePlayerPayload } from "@/lib/ingestion/schemas";
@@ -49,7 +49,7 @@ export async function syncOnePlayerProfile(
     return { tag: playerTagRaw, outcome: "invalid_tag", reason: tagResult.reason };
   }
   const tag = tagResult.normalized;
-  const pool = getPool();
+  const pool = getWritePool();
 
   const dataSource = await catalogRepo.getDataSourceByName(pool, DATA_SOURCE_NAME);
   const endpoint = dataSource

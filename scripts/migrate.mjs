@@ -42,6 +42,47 @@ const MIGRATIONS_DIR = path.join(__dirname, "..", "migrations");
 const LOCK_NAME = "brawlranks_schema_migration";
 const LOCK_TIMEOUT_SECONDS = 30;
 
+/**
+ * Explicit, reviewed checksum supersessions.
+ *
+ * Maps a migration version to the set of PRIOR file checksums that are known
+ * to describe a schema IDENTICAL to the current file's. An environment whose
+ * `schema_migrations` row recorded one of these prior checksums is therefore
+ * NOT flagged as drift — because the on-disk change that produced the new
+ * checksum could not have changed the resulting schema.
+ *
+ * This is the ONLY sanctioned way an already-applied checksum may differ from
+ * its file, and it is deliberately narrow:
+ *   - Every entry must correspond to a change that cannot alter the applied
+ *     schema (e.g. backtick-quoting a reserved-word identifier, or a pure
+ *     comment/whitespace change).
+ *   - It maps a specific (version, oldChecksum) -> the current file only.
+ *   - ALL other checksum mismatches still abort. The guard is not weakened
+ *     for anything outside this allowlist.
+ *
+ * No production write is performed to reconcile the old row: the runner simply
+ * accepts the recorded prior checksum as equivalent. The row may be left as-is
+ * indefinitely.
+ */
+const ACCEPTED_PRIOR_CHECKSUMS = {
+  // 0014: `battle_teams.rank` was backtick-quoted so migrations apply cleanly
+  // on MySQL 8.4, where RANK is a reserved word (window functions). MariaDB
+  // accepts it unquoted, so production recorded the pre-quote checksum below.
+  // Backticks are lexical only — the battle_teams schema is byte-identical on
+  // both engines. See DATASET Phase 3 (docs/dataset/phase3-mysql84-compat.md).
+  "0014": new Set([
+    "aab4acd247747216c2a56ad2396d0c724d7fb74df02ba8b4fc36b075a4272302",
+  ]),
+};
+
+/**
+ * True when `appliedChecksum` is an explicitly allowlisted prior checksum for
+ * this version — i.e. a reviewed, schema-preserving supersession, not drift.
+ */
+function isAcceptedPriorChecksum(version, appliedChecksum) {
+  return ACCEPTED_PRIOR_CHECKSUMS[version]?.has(appliedChecksum) ?? false;
+}
+
 function parsePort(raw) {
   if (!raw) return 3306;
   const parsed = Number(raw);
@@ -124,14 +165,24 @@ async function loadAppliedMigrations(connection) {
 function verifyNoChecksumDrift(migrationFiles, applied) {
   for (const file of migrationFiles) {
     const appliedRow = applied.get(file.version);
-    if (appliedRow && appliedRow.checksum !== file.checksum) {
-      throw new Error(
-        `Checksum drift detected for migration ${file.version} (${file.filename}): ` +
-          `applied checksum ${appliedRow.checksum.slice(0, 12)}... does not match the current file's ` +
-          `checksum ${file.checksum.slice(0, 12)}.... This migration was already applied with different ` +
-          "content. Refusing to proceed — do not edit an applied migration; create a new one instead."
+    if (!appliedRow || appliedRow.checksum === file.checksum) continue;
+
+    // A reviewed, schema-preserving supersession is not drift.
+    if (isAcceptedPriorChecksum(file.version, appliedRow.checksum)) {
+      console.log(
+        `[note] migration ${file.version} (${file.filename}) recorded an allowlisted prior ` +
+          `checksum (${appliedRow.checksum.slice(0, 12)}...). Accepted as a reviewed, ` +
+          "schema-preserving supersession — see ACCEPTED_PRIOR_CHECKSUMS in scripts/migrate.mjs."
       );
+      continue;
     }
+
+    throw new Error(
+      `Checksum drift detected for migration ${file.version} (${file.filename}): ` +
+        `applied checksum ${appliedRow.checksum.slice(0, 12)}... does not match the current file's ` +
+        `checksum ${file.checksum.slice(0, 12)}.... This migration was already applied with different ` +
+        "content. Refusing to proceed — do not edit an applied migration; create a new one instead."
+    );
   }
 }
 
@@ -170,7 +221,12 @@ async function cmdStatus() {
     for (const file of migrationFiles) {
       const appliedRow = applied.get(file.version);
       if (appliedRow) {
-        const driftNote = appliedRow.checksum === file.checksum ? "" : "  ** CHECKSUM DRIFT **";
+        let driftNote = "";
+        if (appliedRow.checksum !== file.checksum) {
+          driftNote = isAcceptedPriorChecksum(file.version, appliedRow.checksum)
+            ? "  (allowlisted prior checksum — reviewed supersession)"
+            : "  ** CHECKSUM DRIFT **";
+        }
         console.log(`[applied] ${file.version}_${file.name}  (applied_at=${appliedRow.applied_at.toISOString()})${driftNote}`);
       } else {
         pendingCount += 1;
@@ -246,7 +302,17 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`Migration runner error: ${error.message}`);
-  process.exitCode = 1;
-});
+// Exported for tests. The reconciliation allowlist is security-relevant, so it
+// is exercised directly rather than only through the CLI.
+export { ACCEPTED_PRIOR_CHECKSUMS, isAcceptedPriorChecksum, verifyNoChecksumDrift };
+
+// Only run the CLI when invoked directly, so importing this module in a test
+// does not attempt a database connection.
+const invokedDirectly =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  main().catch((error) => {
+    console.error(`Migration runner error: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

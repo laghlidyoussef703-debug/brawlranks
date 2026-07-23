@@ -629,7 +629,7 @@ export async function insertNormalizedBattle(
   for (const team of teams) {
     const teamId = randomUUID();
     await db.execute(
-      `INSERT INTO battle_teams (id, battle_id, team_index, result, rank) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO battle_teams (id, battle_id, team_index, result, \`rank\`) VALUES (?, ?, ?, ?, ?)`,
       [teamId, id, team.teamIndex, team.result, team.rank]
     );
   }

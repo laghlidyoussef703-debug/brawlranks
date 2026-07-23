@@ -5,7 +5,7 @@
  * promotion-rule requirement — see playerDiscoverySync.ts).
  */
 
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { stableStringify, sha256Hex } from "@/lib/hash";
 import { fetchClubFromProxy } from "@/lib/proxy";
 import { validateClubPayload } from "@/lib/ingestion/schemas";
@@ -53,7 +53,7 @@ export async function runClubSync(clubTagRaw: string, triggeredBy: "manual" | "c
   }
   const tag = tagResult.normalized;
 
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
 
   const dataSource = await catalogRepo.getDataSourceByName(pool, DATA_SOURCE_NAME);

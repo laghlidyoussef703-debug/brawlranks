@@ -4,7 +4,7 @@ import { errorBody, logSafeError } from "@/lib/errors";
 import { syncOnePlayerProfile } from "@/lib/ingestion/sync/playerProfileSync";
 import { runClubSync } from "@/lib/ingestion/sync/clubSync";
 import { getUnprofiledPlayerTags } from "@/lib/ingestion/repository";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 
 export const runtime = "nodejs";
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     // closes the loop between organic discovery (battle-log participants,
     // club members) and real profile data (trophies/region/club), without
     // which those players' region/trophy_bracket could never be populated.
-    const tags = explicitTags.length > 0 ? explicitTags : await getUnprofiledPlayerTags(getPool(), MAX_TAGS_PER_REQUEST);
+    const tags = explicitTags.length > 0 ? explicitTags : await getUnprofiledPlayerTags(getWritePool(), MAX_TAGS_PER_REQUEST);
 
     if (tags.length === 0) {
       return NextResponse.json({ ok: true, results: [], autoClubExpansion: [], outcome: "no_unprofiled_players" });

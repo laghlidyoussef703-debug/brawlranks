@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 import { runQueriesBounded, DB_QUERY_CONCURRENCY } from "@/lib/dbConcurrency";
 import { getActivePatch } from "@/lib/patches/repository";
@@ -272,7 +272,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const report = await buildDatasetCoverageReport(getPool());
+    const report = await buildDatasetCoverageReport(getWritePool());
     return NextResponse.json(report);
   } catch (error) {
     logSafeError("dataset-coverage", "MYSQL_ERROR", error);

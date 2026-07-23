@@ -7,6 +7,7 @@
  * environment with a reachable, migrated database.
  */
 import { test } from "node:test";
+import { closeSharedDbPoolAfterTests } from "./helpers/closeDbPool";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -15,6 +16,8 @@ const hasDbEnv = Boolean(
 );
 const skip = !hasDbEnv;
 const skipReason = "No DB credentials in this environment (DB_HOST/DB_NAME/DB_USER/BRAWL_DB_SECRET_V1 unset).";
+
+closeSharedDbPoolAfterTests();
 
 test("db: ensureCrawlScheduleEntry region/trophy_bracket are sticky — the first non-null assignment wins on repeated calls", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");

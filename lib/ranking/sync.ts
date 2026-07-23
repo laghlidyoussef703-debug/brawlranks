@@ -32,7 +32,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolConnection } from "mysql2/promise";
-import { getPool } from "@/lib/mysql";
+import { getWritePool } from "@/lib/mysql";
 import { logSafeInfo } from "@/lib/errors";
 import * as rankingRepo from "@/lib/ranking/repository";
 import type { RawParticipationRow } from "@/lib/ranking/repository";
@@ -634,7 +634,7 @@ export async function stepRankingRebuild(
   triggeredBy: "manual" | "cron",
   batchSize: number = DEFAULT_RANKING_BATCH_SIZE
 ): Promise<RankingStepResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 
@@ -672,7 +672,7 @@ export async function runRankingRebuild(
   triggeredBy: "manual" | "cron",
   batchSize: number = DEFAULT_RANKING_BATCH_SIZE
 ): Promise<RankingRebuildResult> {
-  const pool = getPool();
+  const pool = getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Pool } from "mysql2/promise";
-import { getPool } from "@/lib/mysql";
+import { getReadPool } from "@/lib/mysql";
 import { getCurrentSnapshotMeta, getCurrentPublishedBrawlers } from "@/lib/publishedSnapshots/repository";
 import { logSafeError, errorBody } from "@/lib/errors";
 
@@ -31,7 +31,7 @@ export async function buildPublicTierListResponse(pool: Pool): Promise<PublicTie
 
 export async function GET() {
   try {
-    const response = await buildPublicTierListResponse(getPool());
+    const response = await buildPublicTierListResponse(getReadPool());
     return NextResponse.json(response);
   } catch (error) {
     logSafeError("public-tier-list", "MYSQL_ERROR", error);

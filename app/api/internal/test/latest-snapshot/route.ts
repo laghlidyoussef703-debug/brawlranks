@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { verifyInternalCronBearer } from "@/lib/auth";
-import { getPool } from "@/lib/mysql";
+import { getReadPool } from "@/lib/mysql";
 import { errorBody, logSafeError } from "@/lib/errors";
 
 // Node.js runtime required: this route uses mysql2.
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const pool = getPool();
+    const pool = getReadPool();
     const [rows] = await pool.query<SnapshotRow[]>(
       `SELECT id, source, endpoint, http_status, payload, payload_hash, fetched_at, received_at, run_id
          FROM api_test_snapshots
