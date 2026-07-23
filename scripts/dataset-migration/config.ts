@@ -83,6 +83,8 @@ export function createEndpointPool(config: EndpointConfig): Pool {
     charset: "utf8mb4",
     timezone: "Z",
     decimalNumbers: false,
+    dateStrings: true,
+    multipleStatements: false,
   });
 }
 
@@ -94,5 +96,6 @@ export function inspectConfig(env: Env = process.env): Record<string, unknown> {
     source: { identity: safeIdentity(source), tls: true, verified: true, connectionLimit: source.connectionLimit },
     target: { identity: safeIdentity(target), tls: true, verified: true, connectionLimit: target.connectionLimit },
     sameDatabase: false,
+    warnings: ["Source grant scope is checked by test-source. A SELECT-only source identity is recommended for least privilege but is not a DATASET.md Phase 8 completion condition; migration source SQL is runtime-restricted to SELECT and SHOW."],
   };
 }

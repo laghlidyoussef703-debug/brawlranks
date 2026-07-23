@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { normalizeTimestamp } from "./timestamp";
 
 export type DbRow = Record<string, unknown>;
 
 function normalized(value: unknown): unknown {
   if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return normalizeTimestamp(value, { family: "internal", table: "canonical_row", column: "unknown", operation: "JSON canonicalization", nullable: false });
   if (Buffer.isBuffer(value)) return value.toString("hex");
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "number" && !Number.isFinite(value)) return String(value);
