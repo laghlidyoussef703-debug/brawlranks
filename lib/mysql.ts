@@ -215,18 +215,63 @@ export function rolesReuseLegacyPool(env: Env = process.env): boolean {
   return resolveRoleDbConfig("read", env).source === "legacy" && resolveRoleDbConfig("write", env).source === "legacy";
 }
 
-/** Materializes a mysql2 `ssl` option from TLS intent (reads a CA file here). */
-function materializeSsl(tls: DbTlsIntent | null): PoolOptions["ssl"] | undefined {
+/** The CA-path env variable name for a role, used only in error messages (never a secret). */
+function caPathVarName(role?: DbRole): string {
+  return role === "read" ? "READ_DB_CA_PATH" : role === "write" ? "WRITE_DB_CA_PATH" : "DB_CA_PATH";
+}
+
+/**
+ * Materializes a mysql2 `ssl` option from TLS intent, reading the CA file here.
+ *
+ * When a CA path is configured (e.g. WRITE_DB_CA_PATH), the file is read with
+ * `node:fs` readFileSync and its contents are passed explicitly to mysql2 as
+ * `ssl.ca`, alongside the parsed `rejectUnauthorized` (which stays `true` unless
+ * `${PREFIX}SSL_REJECT_UNAUTHORIZED=false` was explicitly set). This is what
+ * lets the writer validate a self-signed DigitalOcean CA chain without ever
+ * disabling verification.
+ *
+ * If a CA path IS configured but cannot be read (or is empty), this throws a
+ * clear error naming the env variable. It never disables verification, never
+ * falls back to no-CA, and never includes the certificate contents or any
+ * secret in the message.
+ */
+function materializeSsl(tls: DbTlsIntent | null, role?: DbRole): PoolOptions["ssl"] | undefined {
   if (!tls) return undefined;
-  const ca = tls.caInline ?? (tls.caPath ? readFileSync(tls.caPath, "utf8") : undefined);
+  let ca = tls.caInline;
+  if (ca === undefined && tls.caPath) {
+    try {
+      ca = readFileSync(tls.caPath, "utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+      throw new Error(
+        `Failed to read the TLS CA certificate for the ${role ?? "database"} connection configured via ${caPathVarName(role)} ` +
+          `(error code: ${code}). The CA file must exist and be readable. Certificate verification is NOT disabled.`
+      );
+    }
+    if (ca.trim().length === 0) {
+      throw new Error(
+        `The TLS CA certificate configured via ${caPathVarName(role)} for the ${role ?? "database"} connection is empty.`
+      );
+    }
+  }
   return {
     ...(ca ? { ca } : {}),
     rejectUnauthorized: tls.rejectUnauthorized,
   };
 }
 
+/**
+ * The exact mysql2 `ssl` option a role's pool receives, resolved from env plus
+ * the CA file (read via node:fs). Exported so deployment checks and tests can
+ * verify the writer receives the explicit CA content without opening a socket.
+ * Returns `undefined` when the role uses no TLS (e.g. the legacy pool).
+ */
+export function resolveRoleSslOptions(role: DbRole, env: Env = process.env): PoolOptions["ssl"] | undefined {
+  return materializeSsl(resolveRoleDbConfig(role, env).tls, role);
+}
+
 function buildPool(config: ResolvedDbConfig): Pool {
-  const ssl = materializeSsl(config.tls);
+  const ssl = materializeSsl(config.tls, config.role);
   return mysql.createPool({
     host: config.host,
     port: config.port,
