@@ -66,8 +66,8 @@ export async function acquireWorkflowLock(
   const lockId = randomUUID();
   try {
     await db.execute(
-      `INSERT INTO workflow_locks (id, workflow_definition_id, locked_by_run_id, expires_at)
-       VALUES (?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? MICROSECOND))`,
+      `INSERT INTO workflow_locks (id, workflow_definition_id, locked_by_run_id, locked_at, expires_at)
+       VALUES (?, ?, ?, UTC_TIMESTAMP(3), DATE_ADD(UTC_TIMESTAMP(3), INTERVAL ? MICROSECOND))`,
       [lockId, workflowDefinitionId, runId, ttlMs * 1000]
     );
     return { acquired: true, lockId };
