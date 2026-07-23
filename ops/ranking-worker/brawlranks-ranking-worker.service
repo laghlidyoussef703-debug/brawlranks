@@ -1,0 +1,54 @@
+# Phase 11 ranking-rebuild worker (DigitalOcean droplet).
+#
+# Runs the ranking DRIVER once: it executes bounded synchronous slices
+# (brawlers -> matchups -> finalize -> publish -> completed) against DigitalOcean
+# MySQL, then exits. Type=oneshot so `systemctl start` blocks until the run
+# finishes and reports success/failure; it survives SSH disconnects because it
+# runs under systemd, not your shell.
+#
+# NO TIMER is shipped or enabled (Phase 11 requirement): the rebuild is started
+# on demand with `systemctl start brawlranks-ranking-worker.service`. Ranking is
+# a gated workflow — it must run AFTER a fresh statistical aggregation has fully
+# succeeded, so it is triggered deliberately, never on a blind clock.
+#
+# Install to: /etc/systemd/system/brawlranks-ranking-worker.service
+# Then:       systemctl daemon-reload
+#             systemctl start brawlranks-ranking-worker.service   # run it now
+#             journalctl -u brawlranks-ranking-worker.service -f  # watch JSON logs
+
+[Unit]
+Description=BrawlRanks ranking-rebuild worker (driver, one run to completion)
+After=network-online.target
+Wants=network-online.target
+# Do not run ranking and aggregation at the same time (reciprocal of the
+# aggregation unit's Conflicts=). They share the same DigitalOcean MySQL writer.
+Conflicts=brawlranks-aggregation-worker.service
+
+[Service]
+Type=oneshot
+User=brawlworker
+Group=brawlworker
+WorkingDirectory=/opt/brawlranks-worker/repo
+EnvironmentFile=/etc/brawlranks-worker/ranking.env
+# `npx tsx` runs the TypeScript worker directly (tsx is a repo devDependency).
+# Use an absolute node/npx path if npx is not on the service PATH.
+ExecStart=/usr/bin/npx tsx scripts/worker/ranking-worker.ts --drive
+# A full ranking rebuild scans per-brawler raw participation and can take a
+# while on a large dataset; 4h is a generous ceiling. A hung slice is killed and
+# its per-slice lock/heartbeat go stale and are reconciled on the next run.
+TimeoutStartSec=4h
+# Never auto-restart a oneshot ranking run: a fresh run is started deliberately
+# (canary/operator), and reconciliation handles an interrupted one.
+Restart=no
+Nice=10
+IOSchedulingClass=idle
+# Hardening (worker only needs outbound MySQL + the repo checkout).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/opt/brawlranks-worker/repo
+ReadOnlyPaths=/etc/brawlranks-worker
+
+[Install]
+WantedBy=multi-user.target

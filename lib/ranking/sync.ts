@@ -120,6 +120,8 @@ export interface RankingStepResult {
   brawlersEvaluated?: number;
   brawlersPublished?: number;
   tierMoveRatio?: number;
+  /** Present on `lock_not_acquired`: the id of the run whose slice currently holds the lock (overlap guard; read-only, never a second run). */
+  activeWorkflowRunId?: string;
 }
 
 interface SliceOutcome {
@@ -629,19 +631,40 @@ async function publishPhase(pool: Pool, workflowRunId: string, cursor: RankingCu
 // Entry points
 // ---------------------------------------------------------------------------
 
-/** Per-HTTP-call entry point (the cron route calls this). One bounded slice per request. */
+/**
+ * Per-call entry point. One bounded slice per call: reconcile stale runs, claim
+ * or resume the single ranking-rebuild workflow under a per-slice lock, run
+ * exactly one bounded slice, persist the cursor, and ALWAYS release the lock in
+ * `finally`. As of Phase 11 this is driven OUT-OF-PROCESS by a standalone
+ * DigitalOcean systemd worker (scripts/worker/ranking-worker.ts), not the
+ * Hostinger Next.js request thread — the retired HTTP route returns 410.
+ *
+ * `deps.pool` is an injection seam for tests (default: the DigitalOcean write
+ * pool via WRITE_DB_* / writer-role TLS); production/worker never pass it.
+ */
 export async function stepRankingRebuild(
   triggeredBy: "manual" | "cron",
-  batchSize: number = DEFAULT_RANKING_BATCH_SIZE
+  batchSize: number = DEFAULT_RANKING_BATCH_SIZE,
+  deps: { pool?: Pool } = {}
 ): Promise<RankingStepResult> {
-  const pool = getWritePool();
+  const pool = deps.pool ?? getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 
   const lockRunId = randomUUID();
   const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, SLICE_LOCK_TTL_MS);
   if (!lock.acquired) {
-    return { status: "lock_not_acquired", phase: "brawlers", outcome: "lock_not_acquired" };
+    // Another worker invocation holds the lock and is progressing the job.
+    // Surface the in-flight run id (read-only) so the caller reports a safe
+    // lock_not_acquired — never a second run.
+    const active = await findLatestRunningRun(pool, workflowDefinitionId);
+    return {
+      status: "lock_not_acquired",
+      phase: "brawlers",
+      outcome: "lock_not_acquired",
+      workflowRunId: active?.id,
+      activeWorkflowRunId: active?.id,
+    };
   }
 
   try {
