@@ -14,6 +14,8 @@
     "migrate:status": "node scripts/migrate.mjs status",
     "migrate:up": "node scripts/migrate.mjs up",
     "retention:run": "tsx scripts/dataset/retention-operation.ts",
+  "worker:aggregation": "tsx scripts/worker/aggregation-worker.ts",
+  "worker:aggregation:drive": "tsx scripts/worker/aggregation-worker.ts --drive",
     "test:retention": "tsx --test tests/retentionEligibility.test.ts tests/retentionPlanner.test.ts tests/retentionArchive.test.ts tests/retentionDeletion.test.ts tests/retentionTrend.test.ts tests/retentionSafetyStructure.test.ts tests/retentionRouteAuth.test.ts",
     "phase6:audit": "node scripts/dataset/phase6-target-audit.mjs",
     "test:phase6": "tsx --test tests/migrationTlsConfig.test.ts tests/phase6RestoreStream.test.ts",

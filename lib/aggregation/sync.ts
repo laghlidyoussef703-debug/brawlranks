@@ -18,25 +18,23 @@
  *     one of the phases (mode -> overall -> matchup -> finalize) — inside a
  *     single transaction, then advances a resume cursor persisted in the
  *     job's workflow_steps row.
- *   - `stepAggregation` is the per-call HTTP entry point. It NEVER runs the
- *     heavy set-based aggregate SQL on the request thread (that query scans
- *     the whole battle history and, even for a small brawler batch, can exceed
- *     the ~55s Hostinger/nginx gateway timeout — the original 504). Instead it
- *     returns within a few seconds with an honest state:
- *       * fresh job        -> claim only (create run + scoped runs + cursor) -> `started`
- *       * mode/overall/matchup phase -> hand the lock to an INTENTIONAL,
- *         OBSERVABLE background continuation (`runBackgroundBatch`) that runs
- *         one bounded slice, advances the cursor heartbeat, and always releases
- *         the lock -> `in_progress`
- *       * finalize (bounded by aggregate-row counts, not battle history; light)
- *         -> run inline and complete the run -> `completed`
- *       * a slice already in flight (lock held) -> `already_running` (safe
- *         non-error; NEVER a second run)
- *     The scheduler simply calls this endpoint repeatedly until `completed`.
- *   - `runAggregation` is a run-to-completion driver (used by tests/manual/CLI
- *     where no request limit applies) that holds the lock once and loops every
- *     slice on the calling thread; its return shape is unchanged, so existing
- *     behavior and callers stay compatible.
+ *   - `stepAggregation` executes exactly ONE bounded slice synchronously and
+ *     returns an honest state (started / in_progress / already_running /
+ *     completed / failed), ALWAYS releasing its lock in `finally`. As of
+ *     Phase 11 this is driven OUT-OF-PROCESS by a standalone DigitalOcean
+ *     systemd worker (scripts/worker/aggregation-worker.ts), NOT by the
+ *     Hostinger Next.js request thread — the heavy `INSERT ... SELECT` scans
+ *     the whole battle history and would exceed the ~55s Hostinger/nginx
+ *     gateway limit (the original 504), and an in-Next background continuation
+ *     did not survive the response reliably (commit 52e1a83's stalled workflow
+ *     + stale lock). In the worker there is no request limit: the slice simply
+ *     runs to completion and the lock is released in the same call. The worker
+ *     calls this repeatedly (per-slice lock) until `completed`, so a process
+ *     restart BETWEEN slices safely resumes from the persisted cursor.
+ *   - `runAggregation` is a run-to-completion driver (used by tests/manual/CLI)
+ *     that holds the lock once and loops every slice on the calling thread; its
+ *     return shape is unchanged, so existing behavior and callers stay
+ *     compatible.
  *
  * Idempotency/failure-safety model: each slice's INSERT and its cursor
  * advance commit together in one transaction, so an interrupted slice rolls
@@ -55,7 +53,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { getWritePool } from "@/lib/mysql";
 import * as aggRepo from "@/lib/aggregation/repository";
-import { logSafeInfo, logSafeError } from "@/lib/errors";
+import { logSafeInfo } from "@/lib/errors";
 import {
   ensureWorkflowDefinition,
   acquireWorkflowLock,
@@ -121,14 +119,6 @@ export interface AggregationStepResult {
   overallAggregateCount?: number;
   matchupAggregateCount?: number;
   reconciliationWarnings?: number;
-  /**
-   * Detached background-continuation promise, present ONLY when
-   * status === "in_progress" and a heavy slice was dispatched. The HTTP route
-   * MUST NOT await this (that is the whole point — the request returns while
-   * the slice runs). Tests await it to drive the state machine deterministically.
-   * Never rejects.
-   */
-  backgroundSlice?: Promise<void>;
 }
 
 interface SliceOutcome {
@@ -296,60 +286,34 @@ function emptyCounts() {
 }
 
 /**
- * INTENTIONAL, OBSERVABLE background continuation of exactly ONE bounded
- * aggregate slice. It OWNS the workflow lock handed to it by stepAggregation
- * and ALWAYS releases it — after a successful slice, after a slice error (whose
- * own transaction has already rolled back atomically, so no partial write
- * survives and the next call re-runs the same batch), or after marking the run
- * failed. It NEVER rejects: a detached continuation must not surface an
- * unhandled rejection that could crash the process. Progress is observable via
- * the cursor heartbeat (workflow_steps) the slice advances; a failure is
- * observable via workflow_runs.error_summary. This is what makes the aggregate
- * SQL that used to run "accidentally" past the 504 into deliberate, tracked
- * work off the request thread.
- */
-async function runBackgroundBatch(
-  pool: Pool,
-  workflowDefinitionId: string,
-  lockRunId: string,
-  workflowRunId: string,
-  cursor: AggregationCursor,
-  batchSize: number
-): Promise<void> {
-  try {
-    await runOneBatchOrAdvance(pool, workflowRunId, cursor, batchSize);
-  } catch (error) {
-    logSafeError("aggregation-run", "BACKGROUND_SLICE_FAILED", error);
-    try {
-      await completeWorkflowRun(pool, workflowRunId, "failed", "background_slice_error");
-    } catch (markError) {
-      logSafeError("aggregation-run", "BACKGROUND_SLICE_MARK_FAILED", markError);
-    }
-  } finally {
-    try {
-      await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
-    } catch (releaseError) {
-      logSafeError("aggregation-run", "BACKGROUND_SLICE_LOCK_RELEASE_FAILED", releaseError);
-    }
-  }
-}
-
-/**
- * Per-HTTP-call entry point (the cron route calls this). Returns within a few
- * seconds with an honest state and NEVER runs the heavy set-based aggregate SQL
- * on the request thread:
- *   - a fresh job is CLAIMED only (fast) -> `started`;
- *   - a mode/overall/matchup slice is dispatched to an intentional background
- *     continuation that owns the lock -> `in_progress`;
- *   - the light `finalize` step runs inline and completes the run -> `completed`;
- *   - a slice already in flight (lock held) -> `already_running` (safe
- *     non-error; never a second run);
- *   - a run with a missing cursor is failed -> `failed`.
- * A subsequent scheduled call resumes from the persisted cursor until
- * `completed`, at which point the aggregation is a valid input for ranking.
+ * Executes EXACTLY ONE bounded aggregation slice, synchronously, and reports an
+ * honest state. This is the single unit of work a DigitalOcean systemd worker
+ * invocation performs (Phase 11): reconcile stale runs, acquire the workflow
+ * lock, claim/resume the one statistical-aggregation workflow, run one bounded
+ * slice inline (awaited to completion — the worker is a standalone process with
+ * NO ~55s gateway limit), persist the cursor + counts atomically, and ALWAYS
+ * release the lock in `finally`.
+ *
+ * This deliberately does NOT use any Next.js fire-and-forget / detached promise
+ * / request-thread trick. Commit 52e1a83's in-Next background continuation did
+ * not survive reliably after the HTTP response (workflow
+ * 0ead2ee0-…-69fe841d9d52 stalled at 16:35:47 with an unreleased lock and no
+ * SQL running), so heavy execution is moved out-of-process to the worker. Here
+ * the slice runs and the lock is released within the SAME synchronous call, so
+ * there is nothing to "survive" a response.
+ *
+ * States:
+ *   - fresh job                -> CLAIM (run + 3 scoped runs + cursor) -> `started`
+ *   - mode/overall/matchup      -> run one bounded batch (or advance a phase)  -> `in_progress`
+ *   - finalize / done           -> complete the run                            -> `completed`
+ *   - a slice already in flight -> `already_running` (safe; never a second run)
+ *   - a run with a missing cursor -> mark failed -> `failed`
+ * A thrown error from the slice propagates to the caller AFTER the lock is
+ * released (so the worker can exit nonzero); the slice's own transaction has
+ * already rolled back atomically, so the next call re-runs exactly that batch.
  *
  * `deps.pool` is an injection seam for tests (default: the DigitalOcean write
- * pool); production never passes it.
+ * pool via WRITE_DB_* / writer-role TLS); production/worker never pass it.
  */
 export async function stepAggregation(
   triggeredBy: "manual" | "cron",
@@ -363,20 +327,19 @@ export async function stepAggregation(
   const lockRunId = randomUUID();
   const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, HELD_LOCK_TTL_MS);
   if (!lock.acquired) {
-    // A slice is executing (foreground finalize/claim or a background batch).
-    // Surface the in-flight run id (read-only) so the caller returns a safe
-    // already_running — never a second run, never a 504-masquerading failure.
+    // Another worker invocation holds the lock. Surface the in-flight run id
+    // (read-only) so the caller reports a safe already_running — never a second
+    // run.
     const active = await findLatestRunningRun(pool, workflowDefinitionId);
     return { status: "already_running", phase: "mode", workflowRunId: active?.id, activeWorkflowRunId: active?.id };
   }
 
-  // We hold the lock. Only QUICK work runs synchronously here; any heavy slice
-  // is handed off to a background continuation that takes over lock ownership.
-  let lockHandedOff = false;
+  // We hold the lock; it is ALWAYS released in the finally below — on success,
+  // on a thrown slice error, and on every early return.
   try {
     const running = await findLatestRunningRun(pool, workflowDefinitionId);
 
-    // Fresh job: claim only (create run + scoped runs + cursor) and return fast.
+    // Fresh job: claim (create run + scoped runs + cursor). No aggregate SQL.
     if (!running) {
       const workflowRunId = await claimFreshJob(pool, workflowDefinitionId, triggeredBy);
       return { status: "started", phase: "mode", workflowRunId, ...emptyCounts() };
@@ -392,10 +355,8 @@ export async function stepAggregation(
       return { status: "failed", phase: "mode", workflowRunId, ...emptyCounts() };
     }
 
-    // finalize (or, defensively, a 'done' cursor on a still-'running' run):
-    // bounded by aggregate-row counts, not battle history, so it is light
-    // enough to run inline — and it completes the run, so THIS is the call that
-    // reports `completed`.
+    // finalize (or, defensively, a 'done' cursor on a still-'running' run)
+    // completes the run — THIS is the call that reports `completed`.
     if (cursor.phase === "finalize" || cursor.phase === "done") {
       const out = await finalizeAggregation(pool, workflowRunId, cursor);
       return {
@@ -410,24 +371,21 @@ export async function stepAggregation(
       };
     }
 
-    // Heavy per-batch phase (mode/overall/matchup): do NOT run the set-based
-    // aggregate SQL on the request thread. Hand the lock to the background
-    // continuation and return `in_progress` immediately.
-    lockHandedOff = true;
-    const backgroundSlice = runBackgroundBatch(
-      pool,
-      workflowDefinitionId,
-      lockRunId,
+    // Heavy per-batch phase (mode/overall/matchup): run exactly ONE bounded
+    // slice inline, to completion. Safe here because this is the standalone
+    // worker process, not the request-limited Next.js route.
+    const out = await runOneBatchOrAdvance(pool, workflowRunId, cursor, clampBatch(batchSize));
+    return {
+      status: "in_progress",
+      phase: out.phase,
       workflowRunId,
-      cursor,
-      clampBatch(batchSize)
-    );
-    // Defense in depth: the promise is designed never to reject, but attach a
-    // catch so an unexpected throw can never become an unhandledRejection.
-    void backgroundSlice.catch(() => {});
-    return { status: "in_progress", phase: cursor.phase, workflowRunId, backgroundSlice, ...emptyCounts() };
+      modeAggregateCount: out.modeAggregateCount,
+      overallAggregateCount: out.overallAggregateCount,
+      matchupAggregateCount: out.matchupAggregateCount,
+      reconciliationWarnings: out.reconciliationWarnings,
+    };
   } finally {
-    if (!lockHandedOff) await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
+    await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
   }
 }
 

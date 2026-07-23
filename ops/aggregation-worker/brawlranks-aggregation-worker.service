@@ -1,0 +1,45 @@
+# Phase 11 statistical-aggregation worker (DigitalOcean droplet).
+#
+# Runs the aggregation DRIVER once: it executes bounded synchronous slices
+# (mode -> overall -> matchup -> finalize -> completed) against DigitalOcean
+# MySQL, then exits. Type=oneshot so `systemctl start` blocks until the run
+# finishes and reports success/failure; it survives SSH disconnects because it
+# runs under systemd, not your shell.
+#
+# Install to: /etc/systemd/system/brawlranks-aggregation-worker.service
+# Then:       systemctl daemon-reload
+
+[Unit]
+Description=BrawlRanks statistical-aggregation worker (driver, one run to completion)
+After=network-online.target
+Wants=network-online.target
+# Do not run aggregation and ranking at the same time.
+Conflicts=brawlranks-ranking-worker.service
+
+[Service]
+Type=oneshot
+User=brawlworker
+Group=brawlworker
+WorkingDirectory=/opt/brawlranks-worker
+EnvironmentFile=/etc/brawlranks-worker/aggregation.env
+# `npx tsx` runs the TypeScript worker directly (tsx is a repo devDependency).
+# Use an absolute node/npx path if npx is not on the service PATH.
+ExecStart=/usr/bin/npx tsx scripts/worker/aggregation-worker.ts --drive
+# One driver run should finish well within this; a hung slice is killed and the
+# lock/heartbeat go stale and are reconciled on the next run.
+TimeoutStartSec=3600
+# Never auto-restart a oneshot aggregation run: a fresh run is started by the
+# timer (or the canary), and reconciliation handles an interrupted one.
+Restart=no
+Nice=10
+IOSchedulingClass=idle
+# Hardening (worker only needs outbound MySQL + the repo checkout).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/opt/brawlranks-worker
+ReadOnlyPaths=/etc/brawlranks-worker
+
+[Install]
+WantedBy=multi-user.target

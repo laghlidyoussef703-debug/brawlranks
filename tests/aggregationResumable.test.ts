@@ -34,16 +34,12 @@ test("db: the slice path resumes across many calls and eventually completes a va
   for (let i = 0; i < 2000; i += 1) {
     const r = await stepAggregation("manual", 1);
     statuses.push(r.status);
-    // A heavy mode/overall/matchup slice runs as a background continuation; a
-    // single-caller loop must await it before the next step, else it would just
-    // observe `already_running` while the lock is held.
-    if (r.backgroundSlice) await r.backgroundSlice;
     if (r.status === "completed") {
       completed = r;
       break;
     }
-    // already_running should not happen in a single-caller loop that awaits the
-    // background slice; if it does, the next iteration simply retries.
+    // Each call runs one bounded slice synchronously and releases its lock, so a
+    // single-caller loop never observes `already_running`; it just advances.
   }
 
   assert.ok(completed, "the slice loop must eventually reach 'completed'");
@@ -87,7 +83,6 @@ test("db: an interrupted (still in-progress) aggregation is never visible to the
   // Clean up: drive the interrupted job to completion so it does not linger 'running' for later tests.
   for (let i = 0; i < 2000; i += 1) {
     const r = await stepAggregation("manual", 8);
-    if (r.backgroundSlice) await r.backgroundSlice;
     if (r.status === "completed") break;
   }
 });
@@ -127,10 +122,8 @@ test("db: two concurrent SLICE calls never corrupt state — each returns a vali
   for (let i = 0; i < 200; i += 1) {
     const [a, b] = await Promise.all([stepAggregation("manual", 4), stepAggregation("manual", 4)]);
     assert.ok(valid.has(a.status) && valid.has(b.status), `unexpected statuses: ${a.status}, ${b.status}`);
-    // At most one of the two can win the lock and dispatch a background slice;
-    // the other is a safe already_running. Await whichever dispatched so the
-    // job actually advances between iterations.
-    await Promise.all([a.backgroundSlice, b.backgroundSlice].filter(Boolean) as Promise<void>[]);
+    // At most one of the two wins the lock and runs a slice; the other is a safe
+    // already_running. Each slice is synchronous, so progress is deterministic.
     if (a.status === "completed" || b.status === "completed") break;
   }
 

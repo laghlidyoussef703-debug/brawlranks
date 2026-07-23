@@ -1,0 +1,24 @@
+# Steady-state cadence for the statistical-aggregation worker.
+#
+# DATASET / BRAWLRANKS_WEBSITE_SPEC.md Section 7.22 & 15: "Statistical
+# aggregation | Every 6-12 hours." This timer fires every 8 hours (inside that
+# band). Randomized delay avoids a thundering-herd against DigitalOcean MySQL.
+#
+# Install to: /etc/systemd/system/brawlranks-aggregation-worker.timer
+#
+# IMPORTANT (Phase 11 deployment/canary): keep this timer DISABLED and INACTIVE
+# until the canary has driven the current workflow to `completed` and you have
+# explicitly decided to resume the steady-state cadence. Do NOT `enable --now`
+# during deployment. Ranking timers likewise stay disabled.
+
+[Unit]
+Description=Run the BrawlRanks statistical-aggregation worker every 8 hours
+
+[Timer]
+OnCalendar=00/8:00:00
+RandomizedDelaySec=600
+Persistent=true
+Unit=brawlranks-aggregation-worker.service
+
+[Install]
+WantedBy=timers.target
