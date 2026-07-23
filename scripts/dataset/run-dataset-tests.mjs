@@ -31,6 +31,7 @@ const DATASET_UNIT_TESTS = [
   "tests/datasetArchive.test.ts",
   "tests/datasetArchiveRouteAuth.test.ts",
   "tests/migrationTlsConfig.test.ts",
+  "tests/writeDbTlsCa.test.ts",
 ];
 
 // Only run tests that exist, so this stays green as the suite grows.
