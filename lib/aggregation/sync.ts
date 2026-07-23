@@ -17,12 +17,26 @@
  *     a set-based `INSERT ... SELECT` for a bounded batch of brawler_ids in
  *     one of the phases (mode -> overall -> matchup -> finalize) — inside a
  *     single transaction, then advances a resume cursor persisted in the
- *     job's workflow_steps row. Every call returns well under the limit.
- *   - `stepAggregation` is the per-call HTTP entry point (returns
- *     started/in_progress/completed). `runAggregation` is a run-to-completion
- *     driver (used by tests/manual/CLI where no request limit applies) that
- *     holds the lock once and loops every slice; its return shape is
- *     unchanged, so existing behavior and callers stay compatible.
+ *     job's workflow_steps row.
+ *   - `stepAggregation` is the per-call HTTP entry point. It NEVER runs the
+ *     heavy set-based aggregate SQL on the request thread (that query scans
+ *     the whole battle history and, even for a small brawler batch, can exceed
+ *     the ~55s Hostinger/nginx gateway timeout — the original 504). Instead it
+ *     returns within a few seconds with an honest state:
+ *       * fresh job        -> claim only (create run + scoped runs + cursor) -> `started`
+ *       * mode/overall/matchup phase -> hand the lock to an INTENTIONAL,
+ *         OBSERVABLE background continuation (`runBackgroundBatch`) that runs
+ *         one bounded slice, advances the cursor heartbeat, and always releases
+ *         the lock -> `in_progress`
+ *       * finalize (bounded by aggregate-row counts, not battle history; light)
+ *         -> run inline and complete the run -> `completed`
+ *       * a slice already in flight (lock held) -> `already_running` (safe
+ *         non-error; NEVER a second run)
+ *     The scheduler simply calls this endpoint repeatedly until `completed`.
+ *   - `runAggregation` is a run-to-completion driver (used by tests/manual/CLI
+ *     where no request limit applies) that holds the lock once and loops every
+ *     slice on the calling thread; its return shape is unchanged, so existing
+ *     behavior and callers stay compatible.
  *
  * Idempotency/failure-safety model: each slice's INSERT and its cursor
  * advance commit together in one transaction, so an interrupted slice rolls
@@ -41,7 +55,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { getWritePool } from "@/lib/mysql";
 import * as aggRepo from "@/lib/aggregation/repository";
-import { logSafeInfo } from "@/lib/errors";
+import { logSafeInfo, logSafeError } from "@/lib/errors";
 import {
   ensureWorkflowDefinition,
   acquireWorkflowLock,
@@ -59,11 +73,18 @@ const WORKFLOW_SLUG = "statistical-aggregation";
 export const DEFAULT_AGGREGATION_BATCH_SIZE = 8;
 export const MAX_AGGREGATION_BATCH_SIZE = 50;
 
-/** Per-HTTP-call lock TTL: comfortably longer than one bounded slice, shorter than the scheduled resume interval so an abandoned lock frees itself quickly. */
-const SLICE_LOCK_TTL_MS = 2 * 60_000;
-/** Driver (run-to-completion) lock TTL: covers a whole in-process loop over all slices; used only where no request limit applies. */
-const DRIVER_LOCK_TTL_MS = 15 * 60_000;
-/** A 'running' job whose heartbeat is older than this is treated as abandoned and reclaimed so a fresh job can start. Longer than any realistic gap between scheduled resume calls. */
+/**
+ * Lock TTL for a HELD slice. It must comfortably exceed the wall-clock time of
+ * ONE bounded unit of work — a single background aggregate batch on the HTTP
+ * path, or a whole run-to-completion driver loop — so the lock can NEVER expire
+ * mid-slice and let a concurrent call clear it and start a second batch on the
+ * same run (which would double-write that run's rows). A bounded batch (<= MAX
+ * brawlers) always completes well inside this. It is also short enough that a
+ * crashed holder frees the lock within the stale-reclaim window below, so the
+ * workflow self-heals instead of wedging.
+ */
+const HELD_LOCK_TTL_MS = 15 * 60_000;
+/** A 'running' job whose heartbeat is older than this is treated as abandoned and reclaimed so a fresh job can start. Longer than any realistic gap between scheduled resume calls, and >= one bounded slice's runtime. */
 const STALE_JOB_SECONDS = 15 * 60;
 /** Sanity cap on driver loop iterations — bounded work can never legitimately exceed this. */
 const MAX_DRIVER_SLICES = 1_000_000;
@@ -89,14 +110,25 @@ export interface AggregationResult {
 }
 
 export interface AggregationStepResult {
-  status: "started" | "in_progress" | "completed" | "lock_not_acquired";
+  /** The honest, HTTP-safe state of the job after this call. */
+  status: "started" | "in_progress" | "already_running" | "completed" | "failed";
   phase: AggregationPhase;
   workflowRunId?: string;
+  /** Present on `already_running`: the id of the run whose slice currently holds the lock (overlap guard; read-only, never a second run). */
+  activeWorkflowRunId?: string;
   outcome?: AggregationRunStatus;
   modeAggregateCount?: number;
   overallAggregateCount?: number;
   matchupAggregateCount?: number;
   reconciliationWarnings?: number;
+  /**
+   * Detached background-continuation promise, present ONLY when
+   * status === "in_progress" and a heavy slice was dispatched. The HTTP route
+   * MUST NOT await this (that is the whole point — the request returns while
+   * the slice runs). Tests await it to drive the state machine deterministically.
+   * Never rejects.
+   */
+  backgroundSlice?: Promise<void>;
 }
 
 interface SliceOutcome {
@@ -127,55 +159,47 @@ async function withTransaction<T>(pool: Pool, fn: (c: PoolConnection) => Promise
 }
 
 /**
- * Executes exactly one bounded slice of the aggregation job and returns its
- * result. The caller MUST already hold this workflow's lock (both entry
- * points below do) — this function never acquires or releases it, so it can
- * be reused by both the per-call HTTP path and the run-to-completion driver.
+ * Fresh-start CLAIM: create the workflow_run, its three scoped
+ * aggregation_runs, and the initial cursor atomically, then return the new
+ * run id. This is the ONLY synchronous work the HTTP trigger does for a fresh
+ * job — no heavy aggregate SQL runs here, so the trigger returns `started`
+ * within milliseconds. The caller MUST already hold the workflow lock (so the
+ * fresh-vs-resume decision cannot race a concurrent call).
  */
-async function executeNextAggregationSlice(
+async function claimFreshJob(
   pool: Pool,
   workflowDefinitionId: string,
-  triggeredBy: "manual" | "cron",
+  triggeredBy: "manual" | "cron"
+): Promise<string> {
+  const workflowRunId = await withTransaction(pool, async (c) => {
+    const runId = await startWorkflowRun(c, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
+    const mode = await aggRepo.createAggregationRun(c, { workflowRunId: runId, scope: "per_mode" });
+    const overall = await aggRepo.createAggregationRun(c, { workflowRunId: runId, scope: "overall" });
+    const matchup = await aggRepo.createAggregationRun(c, { workflowRunId: runId, scope: "matchup" });
+    const cursor: AggregationCursor = { phase: "mode", runIds: { mode, overall, matchup }, brawlerCursor: null };
+    await writeJobCursor(c, runId, cursor);
+    return runId;
+  });
+  logSafeInfo("aggregation-run", "job_started", { workflowRunId });
+  return workflowRunId;
+}
+
+/**
+ * One bounded per-brawler-batch slice for the mode -> overall -> matchup
+ * phases: process the next `batchSize` active brawlers of the current phase,
+ * or — when the phase's brawlers are exhausted — advance the cursor to the
+ * next phase. The HEAVY set-based `INSERT ... SELECT` lives here; on the HTTP
+ * path this only ever runs inside the background continuation, never the
+ * request thread. The INSERT and the cursor advance commit together, so an
+ * interrupted slice rolls back atomically and the next call re-runs exactly
+ * this batch — never a partial or double write. The caller MUST hold the lock.
+ */
+async function runOneBatchOrAdvance(
+  pool: Pool,
+  workflowRunId: string,
+  cursor: AggregationCursor,
   batchSize: number
 ): Promise<SliceOutcome> {
-  const running = await findLatestRunningRun(pool, workflowDefinitionId);
-
-  // --- Fresh start: create the run, its three scoped aggregation_runs, and the initial cursor atomically. ---
-  if (!running) {
-    const workflowRunId = await withTransaction(pool, async (c) => {
-      const runId = await startWorkflowRun(c, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
-      const mode = await aggRepo.createAggregationRun(c, { workflowRunId: runId, scope: "per_mode" });
-      const overall = await aggRepo.createAggregationRun(c, { workflowRunId: runId, scope: "overall" });
-      const matchup = await aggRepo.createAggregationRun(c, { workflowRunId: runId, scope: "matchup" });
-      const cursor: AggregationCursor = { phase: "mode", runIds: { mode, overall, matchup }, brawlerCursor: null };
-      await writeJobCursor(c, runId, cursor);
-      return runId;
-    });
-    logSafeInfo("aggregation-run", "job_started", { workflowRunId, batchSize });
-    return { freshStart: true, done: false, phase: "mode", workflowRunId, ...emptyCounts() };
-  }
-
-  const workflowRunId = running.id;
-  const cursor = await readJobCursor<AggregationCursor>(pool, workflowRunId);
-  if (!cursor) {
-    // A run that started but never wrote its cursor (crashed in the tiny init
-    // window). Fail it so the next call starts a clean job; do not attempt a
-    // guess-based resume without the scoped run ids.
-    await completeWorkflowRun(pool, workflowRunId, "failed", "missing_cursor");
-    logSafeInfo("aggregation-run", "job_failed_missing_cursor", { workflowRunId });
-    return { freshStart: false, done: false, phase: "mode", workflowRunId, ...emptyCounts() };
-  }
-
-  if (cursor.phase === "finalize") {
-    return finalizeAggregation(pool, workflowRunId, cursor);
-  }
-  if (cursor.phase === "done") {
-    // Defensive: a 'done' cursor on a still-'running' run should not happen;
-    // treat as finalize to converge.
-    return finalizeAggregation(pool, workflowRunId, cursor);
-  }
-
-  // --- Per-brawler-batch phases: mode -> overall -> matchup ---
   const batch = await aggRepo.getActiveBrawlerIdBatch(pool, cursor.brawlerCursor, batchSize);
   if (batch.length === 0) {
     const nextPhase: AggregationPhase = cursor.phase === "mode" ? "overall" : cursor.phase === "overall" ? "matchup" : "finalize";
@@ -194,6 +218,44 @@ async function executeNextAggregationSlice(
   });
   logSafeInfo("aggregation-run", "batch_processed", { workflowRunId, phase: cursor.phase, brawlers: batch.length, cursor: batch[batch.length - 1] });
   return { freshStart: false, done: false, phase: cursor.phase, workflowRunId, ...emptyCounts() };
+}
+
+/**
+ * Executes exactly one bounded slice of the aggregation job and returns its
+ * result — the run-to-completion driver's per-iteration step. The caller MUST
+ * already hold this workflow's lock; this never acquires or releases it. The
+ * HTTP path does NOT use this (it dispatches slices individually so it can keep
+ * the heavy batch off the request thread); only `runAggregation` calls it.
+ */
+async function executeNextAggregationSlice(
+  pool: Pool,
+  workflowDefinitionId: string,
+  triggeredBy: "manual" | "cron",
+  batchSize: number
+): Promise<SliceOutcome> {
+  const running = await findLatestRunningRun(pool, workflowDefinitionId);
+  if (!running) {
+    const workflowRunId = await claimFreshJob(pool, workflowDefinitionId, triggeredBy);
+    return { freshStart: true, done: false, phase: "mode", workflowRunId, ...emptyCounts() };
+  }
+
+  const workflowRunId = running.id;
+  const cursor = await readJobCursor<AggregationCursor>(pool, workflowRunId);
+  if (!cursor) {
+    // A run that started but never wrote its cursor (crashed in the tiny init
+    // window). Fail it so the next call starts a clean job; do not attempt a
+    // guess-based resume without the scoped run ids.
+    await completeWorkflowRun(pool, workflowRunId, "failed", "missing_cursor");
+    logSafeInfo("aggregation-run", "job_failed_missing_cursor", { workflowRunId });
+    return { freshStart: false, done: false, phase: "mode", workflowRunId, ...emptyCounts() };
+  }
+
+  // finalize (or, defensively, a 'done' cursor on a still-'running' run) -> converge.
+  if (cursor.phase === "finalize" || cursor.phase === "done") {
+    return finalizeAggregation(pool, workflowRunId, cursor);
+  }
+
+  return runOneBatchOrAdvance(pool, workflowRunId, cursor, batchSize);
 }
 
 async function finalizeAggregation(pool: Pool, workflowRunId: string, cursor: AggregationCursor): Promise<SliceOutcome> {
@@ -234,41 +296,138 @@ function emptyCounts() {
 }
 
 /**
- * Per-HTTP-call entry point (the cron route calls this). Acquires the lock,
- * runs exactly one bounded slice, releases the lock, and reports honest
- * progress. A subsequent scheduled call resumes from the persisted cursor;
- * `completed` signals the job is done and the aggregation is now a valid
- * input for ranking.
+ * INTENTIONAL, OBSERVABLE background continuation of exactly ONE bounded
+ * aggregate slice. It OWNS the workflow lock handed to it by stepAggregation
+ * and ALWAYS releases it — after a successful slice, after a slice error (whose
+ * own transaction has already rolled back atomically, so no partial write
+ * survives and the next call re-runs the same batch), or after marking the run
+ * failed. It NEVER rejects: a detached continuation must not surface an
+ * unhandled rejection that could crash the process. Progress is observable via
+ * the cursor heartbeat (workflow_steps) the slice advances; a failure is
+ * observable via workflow_runs.error_summary. This is what makes the aggregate
+ * SQL that used to run "accidentally" past the 504 into deliberate, tracked
+ * work off the request thread.
+ */
+async function runBackgroundBatch(
+  pool: Pool,
+  workflowDefinitionId: string,
+  lockRunId: string,
+  workflowRunId: string,
+  cursor: AggregationCursor,
+  batchSize: number
+): Promise<void> {
+  try {
+    await runOneBatchOrAdvance(pool, workflowRunId, cursor, batchSize);
+  } catch (error) {
+    logSafeError("aggregation-run", "BACKGROUND_SLICE_FAILED", error);
+    try {
+      await completeWorkflowRun(pool, workflowRunId, "failed", "background_slice_error");
+    } catch (markError) {
+      logSafeError("aggregation-run", "BACKGROUND_SLICE_MARK_FAILED", markError);
+    }
+  } finally {
+    try {
+      await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
+    } catch (releaseError) {
+      logSafeError("aggregation-run", "BACKGROUND_SLICE_LOCK_RELEASE_FAILED", releaseError);
+    }
+  }
+}
+
+/**
+ * Per-HTTP-call entry point (the cron route calls this). Returns within a few
+ * seconds with an honest state and NEVER runs the heavy set-based aggregate SQL
+ * on the request thread:
+ *   - a fresh job is CLAIMED only (fast) -> `started`;
+ *   - a mode/overall/matchup slice is dispatched to an intentional background
+ *     continuation that owns the lock -> `in_progress`;
+ *   - the light `finalize` step runs inline and completes the run -> `completed`;
+ *   - a slice already in flight (lock held) -> `already_running` (safe
+ *     non-error; never a second run);
+ *   - a run with a missing cursor is failed -> `failed`.
+ * A subsequent scheduled call resumes from the persisted cursor until
+ * `completed`, at which point the aggregation is a valid input for ranking.
+ *
+ * `deps.pool` is an injection seam for tests (default: the DigitalOcean write
+ * pool); production never passes it.
  */
 export async function stepAggregation(
   triggeredBy: "manual" | "cron",
-  batchSize: number = DEFAULT_AGGREGATION_BATCH_SIZE
+  batchSize: number = DEFAULT_AGGREGATION_BATCH_SIZE,
+  deps: { pool?: Pool } = {}
 ): Promise<AggregationStepResult> {
-  const pool = getWritePool();
+  const pool = deps.pool ?? getWritePool();
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 
   const lockRunId = randomUUID();
-  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, SLICE_LOCK_TTL_MS);
+  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, HELD_LOCK_TTL_MS);
   if (!lock.acquired) {
-    return { status: "lock_not_acquired", phase: "mode" };
+    // A slice is executing (foreground finalize/claim or a background batch).
+    // Surface the in-flight run id (read-only) so the caller returns a safe
+    // already_running — never a second run, never a 504-masquerading failure.
+    const active = await findLatestRunningRun(pool, workflowDefinitionId);
+    return { status: "already_running", phase: "mode", workflowRunId: active?.id, activeWorkflowRunId: active?.id };
   }
 
+  // We hold the lock. Only QUICK work runs synchronously here; any heavy slice
+  // is handed off to a background continuation that takes over lock ownership.
+  let lockHandedOff = false;
   try {
-    const r = await executeNextAggregationSlice(pool, workflowDefinitionId, triggeredBy, clampBatch(batchSize));
-    const status: AggregationStepResult["status"] = r.freshStart ? "started" : r.done ? "completed" : "in_progress";
-    return {
-      status,
-      phase: r.phase,
-      workflowRunId: r.workflowRunId,
-      outcome: r.outcome,
-      modeAggregateCount: r.modeAggregateCount,
-      overallAggregateCount: r.overallAggregateCount,
-      matchupAggregateCount: r.matchupAggregateCount,
-      reconciliationWarnings: r.reconciliationWarnings,
-    };
+    const running = await findLatestRunningRun(pool, workflowDefinitionId);
+
+    // Fresh job: claim only (create run + scoped runs + cursor) and return fast.
+    if (!running) {
+      const workflowRunId = await claimFreshJob(pool, workflowDefinitionId, triggeredBy);
+      return { status: "started", phase: "mode", workflowRunId, ...emptyCounts() };
+    }
+
+    const workflowRunId = running.id;
+    const cursor = await readJobCursor<AggregationCursor>(pool, workflowRunId);
+    if (!cursor) {
+      // Started but never wrote its cursor (crashed in the tiny init window).
+      // Fail it so the next call starts a clean job.
+      await completeWorkflowRun(pool, workflowRunId, "failed", "missing_cursor");
+      logSafeInfo("aggregation-run", "job_failed_missing_cursor", { workflowRunId });
+      return { status: "failed", phase: "mode", workflowRunId, ...emptyCounts() };
+    }
+
+    // finalize (or, defensively, a 'done' cursor on a still-'running' run):
+    // bounded by aggregate-row counts, not battle history, so it is light
+    // enough to run inline — and it completes the run, so THIS is the call that
+    // reports `completed`.
+    if (cursor.phase === "finalize" || cursor.phase === "done") {
+      const out = await finalizeAggregation(pool, workflowRunId, cursor);
+      return {
+        status: "completed",
+        phase: "done",
+        workflowRunId,
+        outcome: out.outcome,
+        modeAggregateCount: out.modeAggregateCount,
+        overallAggregateCount: out.overallAggregateCount,
+        matchupAggregateCount: out.matchupAggregateCount,
+        reconciliationWarnings: out.reconciliationWarnings,
+      };
+    }
+
+    // Heavy per-batch phase (mode/overall/matchup): do NOT run the set-based
+    // aggregate SQL on the request thread. Hand the lock to the background
+    // continuation and return `in_progress` immediately.
+    lockHandedOff = true;
+    const backgroundSlice = runBackgroundBatch(
+      pool,
+      workflowDefinitionId,
+      lockRunId,
+      workflowRunId,
+      cursor,
+      clampBatch(batchSize)
+    );
+    // Defense in depth: the promise is designed never to reject, but attach a
+    // catch so an unexpected throw can never become an unhandledRejection.
+    void backgroundSlice.catch(() => {});
+    return { status: "in_progress", phase: cursor.phase, workflowRunId, backgroundSlice, ...emptyCounts() };
   } finally {
-    await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
+    if (!lockHandedOff) await releaseWorkflowLock(pool, workflowDefinitionId, lockRunId);
   }
 }
 
@@ -288,7 +447,7 @@ export async function runAggregation(
   await reconcileStaleWorkflowRuns(pool, workflowDefinitionId, STALE_JOB_SECONDS);
 
   const lockRunId = randomUUID();
-  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, DRIVER_LOCK_TTL_MS);
+  const lock = await acquireWorkflowLock(pool, workflowDefinitionId, lockRunId, HELD_LOCK_TTL_MS);
   if (!lock.acquired) {
     return { outcome: "lock_not_acquired", ...emptyCounts() };
   }
