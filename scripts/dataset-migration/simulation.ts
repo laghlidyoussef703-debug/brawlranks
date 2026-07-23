@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import { compareCursor, type CompositeCursor } from "./model";
+import { normalizeTimestamp } from "./timestamp";
+import type { DbRow } from "./canonical";
+import { classifyWorkflowLockRow, isMariaDbZeroDate } from "./workflow-lock-normalization";
 
 export interface SimRow { id: string; timestamp: string; key: string; content: string; mutable?: boolean; status?: string }
 
@@ -18,7 +21,8 @@ export function compositePage(rows: SimRow[], lower: CompositeCursor | null, upp
 }
 
 export function overlapStart(cursor: CompositeCursor, seconds: number): CompositeCursor {
-  return { timestamp: new Date(new Date(cursor.timestamp).getTime() - seconds * 1000).toISOString(), id: "" };
+  const normalized = normalizeTimestamp(cursor.timestamp, { family: "simulation", table: "simulated_rows", column: "timestamp", operation: "overlap start calculation", nullable: false })!;
+  return { timestamp: new Date(new Date(normalized).getTime() - seconds * 1000).toISOString(), id: "" };
 }
 
 export function canonicalChecksum(content: string): string {
@@ -47,6 +51,25 @@ export class PageCursorSimulation {
 export function reconcileEphemeral(sourceIds: string[], targetIds: string[]): { stale: string[] } {
   const source = new Set(sourceIds);
   return { stale: targetIds.filter((id) => !source.has(id)) };
+}
+
+export function reconcileSimulatedTargetWorkflowLock(
+  target: Map<string, DbRow>,
+  id: string,
+  slug: string,
+  fixedWatermark: string,
+  apply: boolean,
+  allowReconcileDelete: boolean
+): { plannedDeleted: number; deleted: number; deletionRequired: boolean } {
+  const row = target.get(id);
+  if (!row || !isMariaDbZeroDate(row.locked_at)) return { plannedDeleted: 0, deleted: 0, deletionRequired: false };
+  const decision = classifyWorkflowLockRow(row, slug, fixedWatermark);
+  if (decision.action !== "skip") return { plannedDeleted: 0, deleted: 0, deletionRequired: false };
+  if (apply && allowReconcileDelete) {
+    target.delete(id);
+    return { plannedDeleted: 1, deleted: 1, deletionRequired: false };
+  }
+  return { plannedDeleted: 1, deleted: 0, deletionRequired: apply && !allowReconcileDelete };
 }
 
 export function childCountHash(rows: Array<{ parent: string; content: string }>): Map<string, { count: number; hash: string }> {
