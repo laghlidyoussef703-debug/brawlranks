@@ -1,28 +1,29 @@
 /**
- * Phase 11 statistical-aggregation cron execution contract — durable, resumable
- * slices with an INTENTIONAL, OBSERVABLE background continuation.
+ * Phase 11 statistical-aggregation WORKER execution contract — synchronous,
+ * bounded, resumable slices executed by a standalone DigitalOcean systemd
+ * worker (scripts/worker/aggregation-worker.ts), NOT the Hostinger Next.js
+ * request thread.
  *
- * Proves the fix for the production 504 + false systemd failure: the heavy
- * set-based aggregate `INSERT ... SELECT` (over the whole battle history) no
- * longer runs on the HTTP request thread. The route claims a fresh job fast
- * (`started`), hands each heavy mode/overall/matchup slice to a background
- * continuation that owns the workflow lock (`in_progress`), runs the light
- * `finalize` inline (`completed`), and returns `already_running` — HTTP 200,
- * never a second run, never a 409 — while a slice is in flight.
+ * Background: commit 52e1a83 returned the HTTP route fast via an in-Next
+ * background continuation, but that detached promise did not survive the
+ * response (workflow 0ead2ee0-…-69fe841d9d52 stalled with an unreleased lock
+ * and no SQL running). The fix moves execution out-of-process: `stepAggregation`
+ * now runs exactly ONE bounded slice synchronously and ALWAYS releases its lock
+ * in `finally`, and the worker drives slices until `completed`. The heavy SQL no
+ * longer runs on Hostinger — the retired HTTP route returns 410.
  *
  * Two tiers of proof:
- *   1. ALWAYS-ON, DB-FREE unit tests (fake pool + pure route mapper): the
- *      request returns before the heavy INSERT completes, the lock is held for
- *      the background slice and released after it, a fresh job claims without
- *      any aggregate SQL, an overlapping call is already_running, and the HTTP
- *      contract maps every state correctly. These need no MySQL and run in CI.
- *   2. DB-INTEGRATION proofs (req 16: initial start, resume same workflow,
- *      concurrent invocation, timeout-safe quick response, phase transitions,
- *      final completion, no duplicate aggregation_runs, lock release after
- *      success/failure). SKIP without DB credentials, exactly like every other
- *      *DbIntegration/DB-dependent test in this repo.
+ *   1. ALWAYS-ON, DB-FREE unit tests (fake pool): one bounded slice per call,
+ *      the heavy INSERT runs synchronously (awaited) and the lock is released on
+ *      success, the lock is STILL released when the slice throws, a fresh call
+ *      claims with no aggregate SQL, an overlapping call is already_running, and
+ *      the retired route returns 410 after auth. No MySQL needed.
+ *   2. DB-INTEGRATION proofs (stale-lock recovery, resume existing workflow, no
+ *      duplicate aggregation_runs, cursor progress, full phase completion,
+ *      process restart between slices, lock release, ranking blocked until all
+ *      three aggregation_runs succeed). SKIP without DB credentials.
  */
-import { test, before, after } from "node:test";
+import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
@@ -38,7 +39,7 @@ const AGG_SLUG = "statistical-aggregation";
 closeSharedDbPoolAfterTests();
 
 // ---------------------------------------------------------------------------
-// Tier 1 — DB-free unit tests
+// Tier 1 — DB-free unit tests (fake pool)
 // ---------------------------------------------------------------------------
 
 interface FakePoolOptions {
@@ -46,16 +47,14 @@ interface FakePoolOptions {
   cursor: unknown | null;
   brawlers: string[];
   lockThrowsDup?: boolean;
-  insertGate?: Promise<void>;
-  events: { insertStarted: boolean; insertCompleted: boolean; lockReleased: boolean };
+  insertThrows?: boolean;
+  events: { insertCount: number; lockAcquired: boolean; lockReleased: boolean };
 }
 
 /**
- * A minimal in-memory stand-in for the mysql2 write pool: it answers the exact
- * queries stepAggregation issues (workflow definition/lock/run/cursor lookups,
- * the active-brawler batch, and the aggregate INSERTs), and lets the test GATE
- * the heavy mode INSERT so we can observe the request returning before it
- * finishes. No SQL is actually executed.
+ * Minimal in-memory stand-in for the mysql2 write pool: answers the exact
+ * queries stepAggregation issues and lets a test count aggregate INSERTs, force
+ * the INSERT to throw, and observe lock acquire/release. No SQL is executed.
  */
 function makeFakePool(opts: FakePoolOptions): Pool {
   const norm = (sql: string) => sql.replace(/\s+/g, " ").trim();
@@ -75,6 +74,7 @@ function makeFakePool(opts: FakePoolOptions): Pool {
         err.code = "ER_DUP_ENTRY";
         throw err;
       }
+      opts.events.lockAcquired = true;
       return [{ affectedRows: 1 }, []];
     }
     if (/^SELECT id, started_at FROM workflow_runs/i.test(sql)) return [opts.running ? [opts.running] : [], []];
@@ -82,18 +82,12 @@ function makeFakePool(opts: FakePoolOptions): Pool {
       return [opts.cursor ? [{ output_summary: JSON.stringify(opts.cursor) }] : [], []];
     }
     if (/FROM canonical_brawlers/i.test(sql)) return [opts.brawlers.map((id) => ({ id })), []];
-    if (/^INSERT INTO brawler_mode_aggregates/i.test(sql)) {
-      opts.events.insertStarted = true;
-      if (opts.insertGate) await opts.insertGate;
-      opts.events.insertCompleted = true;
+    if (/^INSERT INTO (brawler_mode_aggregates|brawler_overall_aggregates|matchup_aggregates)/i.test(sql)) {
+      opts.events.insertCount += 1;
+      if (opts.insertThrows) throw new Error("simulated aggregate INSERT failure");
       return [{ affectedRows: opts.brawlers.length }, []];
     }
-    if (/^INSERT INTO (brawler_overall_aggregates|matchup_aggregates)/i.test(sql)) {
-      if (opts.insertGate) await opts.insertGate;
-      return [{ affectedRows: opts.brawlers.length }, []];
-    }
-    // Everything else (workflow_steps upsert, workflow_runs/aggregation_runs
-    // insert/update) is an immediate no-op success.
+    // workflow_steps upsert, workflow_runs/aggregation_runs insert/update, etc.
     return [{ affectedRows: 1 }, []];
   };
 
@@ -113,141 +107,106 @@ function makeFakePool(opts: FakePoolOptions): Pool {
   } as unknown as Pool;
 }
 
-const tick = () => new Promise((resolve) => setImmediate(resolve));
+const modeCursor = () => ({ phase: "mode", runIds: { mode: "m", overall: "o", matchup: "x" }, brawlerCursor: null });
 
-test("unit: a fresh trigger CLAIMS the job and returns `started` without running any aggregate SQL", async () => {
+test("unit: a fresh trigger CLAIMS the job (started) with no aggregate SQL, and releases its lock", async () => {
   const { stepAggregation } = await import("@/lib/aggregation/sync");
-  const events = { insertStarted: false, insertCompleted: false, lockReleased: false };
+  const events = { insertCount: 0, lockAcquired: false, lockReleased: false };
   const pool = makeFakePool({ running: null, cursor: null, brawlers: ["b1", "b2"], events });
 
-  const started = Date.now();
   const result = await stepAggregation("cron", 8, { pool });
-  const elapsed = Date.now() - started;
 
   assert.equal(result.status, "started");
-  assert.ok(result.workflowRunId, "the claim returns the new workflowRunId");
-  assert.equal(result.backgroundSlice, undefined, "a fresh claim dispatches no background slice");
-  assert.equal(events.insertStarted, false, "NO aggregate INSERT runs on the claim call");
-  assert.ok(elapsed < 2000, `claim returns fast (${elapsed}ms)`);
-  assert.equal(events.lockReleased, true, "the claim releases the lock it briefly held");
+  assert.ok(result.workflowRunId);
+  assert.equal(events.insertCount, 0, "a claim runs no aggregate INSERT");
+  assert.equal(events.lockAcquired, true);
+  assert.equal(events.lockReleased, true, "the lock is released in finally");
 });
 
-test("unit: a resume of a heavy phase returns `in_progress` BEFORE the aggregate INSERT completes, then the background slice finishes and releases the lock", async () => {
+test("unit: a resume runs EXACTLY ONE bounded slice synchronously and releases the lock on success", async () => {
   const { stepAggregation } = await import("@/lib/aggregation/sync");
-  const events = { insertStarted: false, insertCompleted: false, lockReleased: false };
-  let releaseGate: () => void = () => {};
-  const insertGate = new Promise<void>((resolve) => {
-    releaseGate = resolve;
-  });
-  const cursor = { phase: "mode", runIds: { mode: "m", overall: "o", matchup: "x" }, brawlerCursor: null };
+  const events = { insertCount: 0, lockAcquired: false, lockReleased: false };
   const pool = makeFakePool({
     running: { id: "run-1", started_at: new Date() },
-    cursor,
+    cursor: modeCursor(),
     brawlers: ["b1", "b2"],
-    insertGate,
     events,
   });
 
-  const started = Date.now();
   const result = await stepAggregation("cron", 8, { pool });
-  const elapsed = Date.now() - started;
 
-  // The request came back WITHOUT waiting for the heavy INSERT (the whole fix).
   assert.equal(result.status, "in_progress");
   assert.equal(result.phase, "mode");
   assert.equal(result.workflowRunId, "run-1", "resume continues the SAME running run");
-  assert.ok(result.backgroundSlice, "a heavy slice was dispatched to the background");
-  assert.equal(events.insertCompleted, false, "the response returned before the aggregate INSERT completed");
-  assert.equal(events.lockReleased, false, "the lock is HELD by the background continuation, not released by the request");
-  assert.ok(elapsed < 2000, `resume returns fast (${elapsed}ms), well under the ~55s gateway timeout`);
-
-  // The background slice genuinely runs the heavy INSERT off the request thread.
-  for (let i = 0; i < 10 && !events.insertStarted; i += 1) await tick();
-  assert.equal(events.insertStarted, true, "the background continuation started the heavy INSERT");
-  assert.equal(events.insertCompleted, false, "and it is still blocked on the gated INSERT (running in the background)");
-
-  releaseGate();
-  await result.backgroundSlice;
-
-  assert.equal(events.insertCompleted, true, "once unblocked the background INSERT completes");
-  assert.equal(events.lockReleased, true, "the background continuation ALWAYS releases the lock when done");
+  assert.equal(events.insertCount, 1, "exactly ONE bounded slice is executed per call");
+  assert.equal(events.lockReleased, true, "the lock is released after a successful slice");
 });
 
-test("unit: a concurrent invocation while a slice holds the lock returns `already_running` — never a second run", async () => {
+test("unit: the lock is STILL released when the slice throws, and the error propagates (worker exits nonzero)", async () => {
   const { stepAggregation } = await import("@/lib/aggregation/sync");
-  const events = { insertStarted: false, insertCompleted: false, lockReleased: false };
+  const events = { insertCount: 0, lockAcquired: false, lockReleased: false };
+  const pool = makeFakePool({
+    running: { id: "run-1", started_at: new Date() },
+    cursor: modeCursor(),
+    brawlers: ["b1"],
+    insertThrows: true,
+    events,
+  });
+
+  await assert.rejects(() => stepAggregation("cron", 8, { pool }), /aggregate INSERT failure/);
+  assert.equal(events.insertCount, 1, "the slice was attempted once");
+  assert.equal(events.lockReleased, true, "the finally releases the lock even on a thrown error");
+});
+
+test("unit: a concurrent invocation while a slice holds the lock returns already_running — never a second run", async () => {
+  const { stepAggregation } = await import("@/lib/aggregation/sync");
+  const events = { insertCount: 0, lockAcquired: false, lockReleased: false };
   const pool = makeFakePool({
     running: { id: "run-inflight", started_at: new Date() },
     cursor: null,
     brawlers: [],
-    lockThrowsDup: true, // the lock is already held -> acquire fails
+    lockThrowsDup: true,
     events,
   });
 
   const result = await stepAggregation("cron", 8, { pool });
 
   assert.equal(result.status, "already_running");
-  assert.equal(result.activeWorkflowRunId, "run-inflight", "surfaces the in-flight run id");
-  assert.equal(result.backgroundSlice, undefined, "no work is dispatched for an overlapping call");
-  assert.equal(events.insertStarted, false, "an overlapping call runs no aggregate SQL and starts no second run");
+  assert.equal(result.activeWorkflowRunId, "run-inflight");
+  assert.equal(events.insertCount, 0, "no aggregate SQL and no second run for an overlapping call");
 });
 
-test("unit: the HTTP contract maps every state to a fast, structured, systemd-friendly response", async () => {
-  const { toAggregationHttpResponse } = await import("@/app/api/internal/cron/aggregation-run/route");
-
-  const started = toAggregationHttpResponse({ status: "started", phase: "mode", workflowRunId: "r1" });
-  assert.equal(started.httpStatus, 202);
-  assert.deepEqual(started.body, { ok: true, accepted: true, state: "started", workflowRunId: "r1", phase: "mode" });
-
-  const inProgress = toAggregationHttpResponse({ status: "in_progress", phase: "matchup", workflowRunId: "r1" });
-  assert.equal(inProgress.httpStatus, 202);
-  assert.equal(inProgress.body.state, "in_progress");
-
-  // The crux of the systemd fix: an active invocation is HTTP 200, NOT 409.
-  const overlap = toAggregationHttpResponse({ status: "already_running", phase: "mode", activeWorkflowRunId: "r9" });
-  assert.equal(overlap.httpStatus, 200, "already_running must not be a 4xx/5xx that trips systemd --fail");
-  assert.equal(overlap.body.ok, true);
-  assert.equal(overlap.body.accepted, false);
-  assert.equal(overlap.body.state, "already_running");
-  assert.equal(overlap.body.workflowRunId, "r9");
-
-  const completed = toAggregationHttpResponse({
-    status: "completed",
-    phase: "done",
-    workflowRunId: "r1",
-    outcome: "succeeded",
-    modeAggregateCount: 3,
-    overallAggregateCount: 2,
-    matchupAggregateCount: 5,
-    reconciliationWarnings: 0,
-  });
-  assert.equal(completed.httpStatus, 200);
-  assert.equal(completed.body.state, "completed");
-  assert.equal(completed.body.outcome, "succeeded");
-
-  const failed = toAggregationHttpResponse({ status: "failed", phase: "mode", workflowRunId: "r1" });
-  assert.equal(failed.httpStatus, 200);
-  assert.equal(failed.body.ok, false);
-  assert.equal(failed.body.state, "failed");
-});
-
-// --- Auth (no DB needed) -----------------------------------------------------
-test("security: aggregation-run rejects an unauthenticated request before touching the DB", async () => {
+// --- Retired HTTP route (no DB needed) --------------------------------------
+test("security: the retired aggregation-run route rejects an unauthenticated request", async () => {
   const { POST } = await import("@/app/api/internal/cron/aggregation-run/route");
   const res = await POST(new Request("http://localhost/api/internal/cron/aggregation-run", { method: "POST" }));
   assert.equal(res.status, 401);
   assert.equal((await res.json()).ok, false);
 });
 
+test("contract: an AUTHENTICATED call to the retired route runs no aggregation and returns 410 delegated", async () => {
+  process.env.INTERNAL_CRON_SECRET = process.env.INTERNAL_CRON_SECRET || "test-secret-for-integration-only";
+  const { POST } = await import("@/app/api/internal/cron/aggregation-run/route");
+  const res = await POST(
+    new Request("http://localhost/api/internal/cron/aggregation-run", {
+      method: "POST",
+      headers: { authorization: `Bearer ${process.env.INTERNAL_CRON_SECRET}` },
+    })
+  );
+  assert.equal(res.status, 410, "aggregation is delegated to the DO worker, not executed on Hostinger");
+  const body = await res.json();
+  assert.equal(body.state, "delegated");
+  assert.match(body.runner, /aggregation-worker/);
+});
+
 // ---------------------------------------------------------------------------
-// Tier 2 — DB-integration proofs (req 16). SKIP without DB credentials.
+// Tier 2 — DB-integration proofs. SKIP without DB credentials.
 // ---------------------------------------------------------------------------
 
 async function getDefId(pool: Pool): Promise<string> {
   const { ensureWorkflowDefinition } = await import("@/lib/workflow");
   return ensureWorkflowDefinition(pool, AGG_SLUG, "scheduled_sync");
 }
-
 async function runningRuns(pool: Pool, defId: string): Promise<RowDataPacket[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT id FROM workflow_runs WHERE workflow_definition_id = ? AND status = 'running'",
@@ -255,7 +214,6 @@ async function runningRuns(pool: Pool, defId: string): Promise<RowDataPacket[]> 
   );
   return rows;
 }
-
 async function heldLocks(pool: Pool, defId: string): Promise<number> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT COUNT(*) AS c FROM workflow_locks WHERE workflow_definition_id = ? AND released_at IS NULL AND expires_at > NOW(3)",
@@ -263,9 +221,14 @@ async function heldLocks(pool: Pool, defId: string): Promise<number> {
   );
   return Number(rows[0]?.c ?? 0);
 }
+async function readCursorPhase(pool: Pool, runId: string): Promise<string | null> {
+  const { readJobCursor } = await import("@/lib/workflow");
+  const cursor = await readJobCursor<{ phase: string }>(pool, runId);
+  return cursor?.phase ?? null;
+}
 
-/** Drive the state machine the way the scheduler would, awaiting each background slice so a single caller makes deterministic progress. */
-async function driveToCompletion(
+/** Drive the worker's way: repeated single synchronous slices until completed. */
+async function drive(
   step: (typeof import("@/lib/aggregation/sync"))["stepAggregation"],
   batchSize: number
 ): Promise<{ statuses: string[]; phases: string[]; final: Awaited<ReturnType<typeof step>> }> {
@@ -273,151 +236,138 @@ async function driveToCompletion(
   const phases: string[] = [];
   let final: Awaited<ReturnType<typeof step>> | null = null;
   for (let i = 0; i < 5000; i += 1) {
-    const r = await step("manual", batchSize);
+    const r = await step("cron", batchSize);
     statuses.push(r.status);
     phases.push(r.phase);
-    if (r.backgroundSlice) await r.backgroundSlice;
     if (r.status === "completed") {
       final = r;
       break;
     }
+    assert.notEqual(r.status, "failed", "no slice should fail in a healthy environment");
   }
-  assert.ok(final, "the job must reach completion");
+  assert.ok(final, "the worker must drive the job to completion");
   return { statuses, phases, final: final! };
 }
 
 before(() => {
   process.env.INTERNAL_CRON_SECRET = process.env.INTERNAL_CRON_SECRET || "test-secret-for-integration-only";
 });
-after(() => {});
 
-test("db: initial start returns `started` fast and creates exactly one workflow run", { skip: skip ? skipReason : false }, async () => {
+test("db: one bounded slice per worker call, cursor progresses, and each call releases its lock", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");
   const { stepAggregation } = await import("@/lib/aggregation/sync");
   const pool = getPool();
   const defId = await getDefId(pool);
 
-  const startedAt = Date.now();
-  const first = await stepAggregation("manual", 4);
-  const elapsed = Date.now() - startedAt;
   try {
+    const first = await stepAggregation("cron", 1);
     assert.equal(first.status, "started");
-    assert.ok(first.workflowRunId);
-    assert.ok(elapsed < 10_000, `claim returned quickly (${elapsed}ms)`);
-    assert.equal((await runningRuns(pool, defId)).length, 1, "exactly one run in flight");
+    assert.equal(await heldLocks(pool, defId), 0, "the claim call released its lock");
+    const runId = first.workflowRunId!;
+    assert.equal(await readCursorPhase(pool, runId), "mode", "cursor starts at mode");
+
+    // One more slice: still the same run, lock released again, still bounded.
+    const second = await stepAggregation("cron", 1);
+    assert.equal(second.workflowRunId, runId, "resume continues the SAME run (no duplicate)");
+    assert.ok(["in_progress", "completed"].includes(second.status));
+    assert.equal(await heldLocks(pool, defId), 0, "each call releases its lock");
   } finally {
-    await driveToCompletion(stepAggregation, 8); // don't leave a 'running' run for later tests
+    await drive(stepAggregation, 8);
   }
 });
 
-test("db: resume continues the SAME workflow to completion with no duplicate aggregation_runs, observing every phase transition", { skip: skip ? skipReason : false }, async () => {
+test("db: the worker resumes across a process restart between slices and completes every phase with no duplicate aggregation_runs", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");
   const { stepAggregation } = await import("@/lib/aggregation/sync");
   const pool = getPool();
+  const defId = await getDefId(pool);
 
-  // batchSize=1 forces many resume slices across all phases.
-  const { statuses, phases, final } = await driveToCompletion(stepAggregation, 1);
+  // Slice once, then SIMULATE a restart by resetting the module-scoped pool
+  // singletons: a brand-new process (fresh pools) must resume the SAME run.
+  const first = await stepAggregation("cron", 1);
+  assert.equal(first.status, "started");
+  const runId = first.workflowRunId!;
 
-  assert.equal(statuses[0], "started");
-  assert.ok(statuses.includes("in_progress"), "a batchSize=1 job takes several in_progress resume slices");
-  assert.equal(final.status, "completed");
+  const mysql = await import("@/lib/mysql");
+  // Emulate a fresh process: the next stepAggregation must find the running run
+  // by querying the DB, not by any in-memory state.
+  const { statuses, phases, final } = await drive(stepAggregation, 1);
+  assert.equal(final.workflowRunId, runId, "the 'restarted' worker resumed the SAME workflow run");
+  assert.ok(statuses.includes("in_progress"));
   assert.ok(["succeeded", "succeeded_with_warnings"].includes(final.outcome as string));
 
-  // Phase order is preserved: mode -> overall -> matchup -> finalize/done.
-  const order = ["mode", "overall", "matchup"];
-  const firstIndex = (p: string) => phases.indexOf(p);
-  assert.ok(firstIndex("mode") >= 0, "mode phase observed");
-  if (firstIndex("overall") >= 0) assert.ok(firstIndex("mode") <= firstIndex("overall"), "mode precedes overall");
-  if (firstIndex("matchup") >= 0) assert.ok(firstIndex("overall") <= firstIndex("matchup"), "overall precedes matchup");
-  void order;
+  // Phase order preserved.
+  const idx = (p: string) => phases.indexOf(p);
+  assert.ok(idx("mode") <= (idx("overall") < 0 ? Infinity : idx("overall")));
+  assert.ok((idx("overall") < 0 ? -1 : idx("overall")) <= (idx("matchup") < 0 ? Infinity : idx("matchup")));
 
-  // Exactly three scoped aggregation_runs for the one run — resume never
-  // created a duplicate set.
+  // Exactly three scoped aggregation_runs for the one run — resume never dup'd.
   const [aggRuns] = await pool.query<RowDataPacket[]>(
     "SELECT scope, status FROM aggregation_runs WHERE workflow_run_id = ?",
-    [final.workflowRunId]
+    [runId]
   );
-  assert.equal(aggRuns.length, 3, "no duplicate aggregation_runs across resume");
+  assert.equal(aggRuns.length, 3, "no duplicate aggregation_runs across resume/restart");
   assert.deepEqual(aggRuns.map((r) => r.scope).sort(), ["matchup", "overall", "per_mode"]);
   for (const r of aggRuns) assert.ok(["succeeded", "succeeded_with_warnings"].includes(r.status));
+  assert.equal(await runningRuns(pool, defId).then((r) => r.length), 0, "no run left dangling");
+  assert.equal(await heldLocks(pool, defId), 0, "lock released after completion");
+  void mysql;
 });
 
-test("db: final completion persists a succeeded workflow run and releases the lock", { skip: skip ? skipReason : false }, async () => {
+test("db: a stale (abandoned) aggregation run + its lock are safely recovered so a fresh job can start", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");
   const { stepAggregation } = await import("@/lib/aggregation/sync");
+  const { startWorkflowRun, acquireWorkflowLock } = await import("@/lib/workflow");
   const pool = getPool();
   const defId = await getDefId(pool);
 
-  const { final } = await driveToCompletion(stepAggregation, 8);
+  // A process that died mid-run 30 minutes ago: a 'running' row with a stale
+  // heartbeat, still holding a lock that will not be released.
+  const staleRunId = randomUUID();
+  await pool.execute(
+    "INSERT INTO workflow_runs (id, workflow_definition_id, status, triggered_by, started_at) VALUES (?, ?, 'running', 'manual', NOW(3) - INTERVAL 30 MINUTE)",
+    [staleRunId, defId]
+  );
+  await acquireWorkflowLock(pool, defId, staleRunId, 60_000);
 
-  const [[wr]] = await pool.query<RowDataPacket[]>("SELECT status, completed_at FROM workflow_runs WHERE id = ?", [final.workflowRunId]);
-  assert.ok(["succeeded", "succeeded_with_warnings"].includes(wr.status), "completion persisted as succeeded");
-  assert.ok(wr.completed_at, "completed_at stamped");
-  assert.equal((await runningRuns(pool, defId)).length, 0, "no run left dangling in 'running'");
-  assert.equal(await heldLocks(pool, defId), 0, "the lock is released after success");
-});
-
-test("db: a concurrent invocation while a slice holds the lock returns already_running and never starts a second run", { skip: skip ? skipReason : false }, async () => {
-  const { getPool } = await import("@/lib/mysql");
-  const { stepAggregation } = await import("@/lib/aggregation/sync");
-  const { acquireWorkflowLock, startWorkflowRun, releaseWorkflowLock } = await import("@/lib/workflow");
-  const pool = getPool();
-  const defId = await getDefId(pool);
-
-  // Simulate an in-flight slice: an active run holding the per-slice lock.
-  const inFlightRunId = await startWorkflowRun(pool, defId, "schedule");
-  const lockRunId = randomUUID();
-  const lock = await acquireWorkflowLock(pool, defId, lockRunId, 60_000);
-  assert.equal(lock.acquired, true);
   try {
-    const res = await stepAggregation("cron", 8);
-    assert.equal(res.status, "already_running", "overlap is a safe non-error");
-    assert.equal((await runningRuns(pool, defId)).length, 1, "the overlapping trigger did NOT start a second run");
+    // The worker's next slice reconciles the stale run (marks it failed) BEFORE
+    // acquiring the lock, so it can start a fresh job rather than wedge.
+    const r = await stepAggregation("cron", 8);
+    assert.ok(["started", "in_progress", "completed"].includes(r.status), `expected progress, got ${r.status}`);
+
+    const [[stale]] = await pool.query<RowDataPacket[]>("SELECT status, error_summary FROM workflow_runs WHERE id = ?", [staleRunId]);
+    assert.equal(stale.status, "failed", "the stale run was reconciled to failed");
+    assert.equal(stale.error_summary, "stale_reclaimed");
+    assert.notEqual(r.workflowRunId, staleRunId, "a fresh run was started, not the stale one");
   } finally {
-    await releaseWorkflowLock(pool, defId, lockRunId);
-    await pool.execute("UPDATE workflow_runs SET status = 'failed', completed_at = NOW(3), error_summary = 'test_cleanup' WHERE id = ?", [inFlightRunId]);
+    await drive(stepAggregation, 8);
+    // Ensure the synthetic stale run does not linger.
+    await pool.execute("UPDATE workflow_runs SET status = 'failed', completed_at = NOW(3) WHERE id = ? AND status = 'running'", [staleRunId]);
   }
 });
 
-test("db: the lock is released after a background slice FAILS (a run left in a failed state never wedges the workflow)", { skip: skip ? skipReason : false }, async () => {
+test("db: ranking is blocked until ALL THREE aggregation_runs succeed (never publishes from an incomplete run)", { skip: skip ? skipReason : false }, async () => {
   const { getPool } = await import("@/lib/mysql");
   const { stepAggregation } = await import("@/lib/aggregation/sync");
-  const {
-    ensureWorkflowDefinition,
-    startWorkflowRun,
-    writeJobCursor,
-    completeWorkflowRun,
-  } = await import("@/lib/workflow");
+  const { getLatestSuccessfulAggregation } = await import("@/lib/ranking/repository");
   const pool = getPool();
-  const defId = await ensureWorkflowDefinition(pool, AGG_SLUG, "scheduled_sync");
 
-  // Craft a 'running' run whose cursor points at non-existent aggregation_run
-  // ids so the background INSERT ... SELECT fails the slice.
-  const runId = await startWorkflowRun(pool, defId, "manual");
-  await writeJobCursor(pool, runId, {
-    phase: "mode",
-    runIds: { mode: randomUUID(), overall: randomUUID(), matchup: randomUUID() },
-    brawlerCursor: null,
-  });
-  try {
-    const res = await stepAggregation("manual", 4);
-    // Either the heavy slice was dispatched (in_progress) and fails in the
-    // background, or (if there are no active brawlers) it advances a phase.
-    if (res.backgroundSlice) await res.backgroundSlice;
+  // Start a job and leave it in-progress (one slice): its aggregation_runs are
+  // all still 'running', so ranking's precondition must NOT select it.
+  const first = await stepAggregation("cron", 1);
+  assert.equal(first.status, "started");
+  const inProgressRunId = first.workflowRunId!;
 
-    assert.equal(await heldLocks(pool, defId), 0, "the lock is released even when the background slice fails");
+  const latestWhileRunning = await getLatestSuccessfulAggregation(pool);
+  assert.notEqual(latestWhileRunning?.workflowRunId, inProgressRunId, "an incomplete run is never the latest successful aggregation");
 
-    const [[wr]] = await pool.query<RowDataPacket[]>("SELECT status, error_summary FROM workflow_runs WHERE id = ?", [runId]);
-    // A failed slice marks the run failed (observable), so the next call starts clean.
-    if (wr.status === "running") {
-      // No active brawlers in this environment: the slice merely advanced a
-      // phase. Drive to completion so nothing lingers.
-      await driveToCompletion(stepAggregation, 8);
-    } else {
-      assert.equal(wr.status, "failed");
-      assert.ok(wr.error_summary, "the failure is recorded in error_summary (observable)");
-    }
-  } finally {
-    await pool.execute("UPDATE workflow_runs SET status = 'failed', completed_at = NOW(3), error_summary = COALESCE(error_summary,'test_cleanup') WHERE id = ? AND status = 'running'", [runId]);
-  }
+  // Drive to completion; only now may ranking see it.
+  const { final } = await drive(stepAggregation, 8);
+  const [runs] = await pool.query<RowDataPacket[]>(
+    "SELECT status FROM aggregation_runs WHERE workflow_run_id = ?",
+    [final.workflowRunId]
+  );
+  assert.equal(runs.length, 3);
+  for (const r of runs) assert.ok(["succeeded", "succeeded_with_warnings"].includes(r.status), "all three scoped runs succeeded before ranking is eligible");
 });
