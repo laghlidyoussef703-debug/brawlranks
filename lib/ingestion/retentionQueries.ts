@@ -64,8 +64,20 @@ export async function pruneNormalizedBattlesOlderThan(db: Queryable, cutoff: Dat
   return deleteBatch(db, "DELETE FROM normalized_battles WHERE occurred_at < ? LIMIT ?", [cutoff, batchSize]);
 }
 
-export async function pruneRawSnapshotsOlderThan(db: Queryable, cutoff: Date, batchSize: number): Promise<number> {
-  return deleteBatch(db, "DELETE FROM raw_api_snapshots WHERE created_at < ? LIMIT ?", [cutoff, batchSize]);
+/**
+ * DATASET Phase 14 CONFLICT NEUTRALIZED — raw_api_snapshots metadata is kept
+ * FOREVER; only the payload may ever be removed (set to NULL), and only after a
+ * verified external archive + 7-day grace + immediate re-verification. This
+ * former "DELETE FROM raw_api_snapshots" is therefore a forbidden operation and
+ * is now a hard no-op (returns 0, deletes nothing). The Phase-14-compliant
+ * lifecycle lives in lib/retention/rawPayload.ts (`runRawPayloadSweep`), which
+ * nulls the payload while preserving the row.
+ *
+ * `_cutoff`/`_batchSize` are accepted only to preserve the call signature; they
+ * are intentionally unused because nothing is deleted here.
+ */
+export async function pruneRawSnapshotsOlderThan(_db: Queryable, _cutoff: Date, _batchSize: number): Promise<number> {
+  return 0;
 }
 
 /** NOT EXISTS-guarded: never deletes a fetch run still referenced as an entity's last/first fetch. */
