@@ -1,0 +1,9 @@
+# Daily capacity snapshot. TEMPLATE — not enabled.
+[Unit]
+Description=Run BrawlRanks monitoring capacity snapshot daily
+[Timer]
+OnCalendar=*-*-* 03:17:00 UTC
+Persistent=true
+Unit=brawlranks-monitoring-capacity.service
+[Install]
+WantedBy=timers.target

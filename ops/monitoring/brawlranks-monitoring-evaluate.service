@@ -1,0 +1,25 @@
+# Phase 15 monitoring evaluate collector (read-only; writes only monitoring rows).
+# TEMPLATE — do not enable until Phase 15 is validated and approved.
+[Unit]
+Description=BrawlRanks monitoring evaluate collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=brawlworker
+Group=brawlworker
+WorkingDirectory=/opt/brawlranks-worker/repo
+EnvironmentFile=/etc/brawlranks-worker/monitoring.env
+ExecStart=/usr/bin/npx tsx scripts/monitoring/monitor.ts evaluate
+TimeoutStartSec=300
+Restart=no
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/opt/brawlranks-worker/repo
+ReadOnlyPaths=/etc/brawlranks-worker
+
+[Install]
+WantedBy=multi-user.target

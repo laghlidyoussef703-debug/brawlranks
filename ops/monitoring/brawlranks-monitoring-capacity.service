@@ -1,0 +1,19 @@
+# Phase 15 monitoring capacity snapshot (daily). TEMPLATE — do not enable yet.
+[Unit]
+Description=BrawlRanks monitoring capacity snapshot
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=brawlworker
+Group=brawlworker
+WorkingDirectory=/opt/brawlranks-worker/repo
+EnvironmentFile=/etc/brawlranks-worker/monitoring.env
+ExecStart=/usr/bin/npx tsx scripts/monitoring/monitor.ts snapshot
+TimeoutStartSec=300
+Restart=no
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+[Install]
+WantedBy=multi-user.target
