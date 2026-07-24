@@ -520,13 +520,6 @@ async function publishPhase(pool: Pool, workflowRunId: string, cursor: RankingCu
   const rankingRunId = cursor.rankingRunId;
   const rows = await rankingRepo.getRankingResultsForRun(pool, rankingRunId);
   const overallRows = rows.filter((r) => r.gameModeId === null);
-  const modeRowsByBrawler = new Map<string, rankingRepo.RunCandidateRow[]>();
-  for (const r of rows) {
-    if (r.gameModeId === null) continue;
-    const list = modeRowsByBrawler.get(r.brawlerId) ?? [];
-    list.push(r);
-    modeRowsByBrawler.set(r.brawlerId, list);
-  }
 
   const brawlersEvaluated = overallRows.length;
   const newTiers = new Map<string, Tier>();
@@ -571,18 +564,86 @@ async function publishPhase(pool: Pool, workflowRunId: string, cursor: RankingCu
     return { freshStart: false, done: true, phase: "done", workflowRunId, rankingRunId, outcome: "no_significant_change", brawlersEvaluated, brawlersPublished: 0, tierMoveRatio };
   }
 
+  const { brawlersPublished: publishedCount } = await publishRankingRunFromCandidates(pool, {
+    rankingRunId,
+    patchId: cursor.patchId,
+    patchVersionLabel: cursor.patchVersionLabel,
+    calculatedAt: new Date(cursor.nowIso),
+    tierMoveRatio,
+    brawlersEvaluated,
+  });
+
+  await withTransaction(pool, async (c) => {
+    await writeJobCursor(c, workflowRunId, { ...cursor, phase: "done" });
+    await completeWorkflowRun(c, workflowRunId, "succeeded");
+  });
+  logSafeInfo("ranking-rebuild", "job_completed", { workflowRunId, outcome: "published", brawlersPublished: publishedCount, tierMoveRatio });
+  return { freshStart: false, done: true, phase: "done", workflowRunId, rankingRunId, outcome: "published", brawlersEvaluated, brawlersPublished: publishedCount, tierMoveRatio };
+}
+
+// ---------------------------------------------------------------------------
+// Shared transactional publication (scheduled publish phase + operator approval)
+// ---------------------------------------------------------------------------
+
+export interface PublishFromCandidatesInputs {
+  rankingRunId: string;
+  patchId: string | null;
+  patchVersionLabel: string | null;
+  /** The run's original calculation time (from its job cursor), kept immutable across a later approval. */
+  calculatedAt: Date;
+  tierMoveRatio: number | null;
+  brawlersEvaluated: number;
+  /** Preserved on the ranking_run so an approved run still records it WAS held (default null = a normal scheduled publish). */
+  holdReason?: string | null;
+}
+
+export interface PublishFromCandidatesResult {
+  snapshotId: string;
+  brawlersPublished: number;
+}
+
+/**
+ * The SINGLE transactional publication of a ranking run's already-computed
+ * candidate rows into the public snapshot tables — shared by the scheduled
+ * `publish` phase and the operator held-run approval path. In one transaction it
+ * supersedes the current snapshot, creates the new one, inserts every
+ * publishable overall item (with its nested mode tiers) and every qualifying
+ * matchup item, and marks the ranking_run succeeded. Any failure rolls the whole
+ * transaction back, so the previous snapshot stays current.
+ *
+ * It applies NO threshold, mass-movement, or eligibility policy of its own: it
+ * publishes exactly the rows whose per-row gates were already decided when the
+ * candidate was computed (`meets_floor` + an assigned `tier`). It therefore
+ * never re-derives or alters any formula/threshold — the approval path reuses it
+ * verbatim, differing only in that it bypasses the *pre-publish* mass-movement
+ * hold (the whole point of an operator approval) and records an audit step via
+ * `onPublished`, which runs inside the SAME transaction for atomic evidence.
+ */
+export async function publishRankingRunFromCandidates(
+  pool: Pool,
+  inputs: PublishFromCandidatesInputs,
+  onPublished?: (c: PoolConnection, ctx: { snapshotId: string; brawlersPublished: number }) => Promise<void>
+): Promise<PublishFromCandidatesResult> {
+  const rows = await rankingRepo.getRankingResultsForRun(pool, inputs.rankingRunId);
+  const overallRows = rows.filter((r) => r.gameModeId === null);
+  const modeRowsByBrawler = new Map<string, rankingRepo.RunCandidateRow[]>();
+  for (const r of rows) {
+    if (r.gameModeId === null) continue;
+    const list = modeRowsByBrawler.get(r.brawlerId) ?? [];
+    list.push(r);
+    modeRowsByBrawler.set(r.brawlerId, list);
+  }
+  const qualifyingMatchups = await rankingRepo.getQualifyingMatchupResults(pool, inputs.rankingRunId);
   const dataLimitationsJson = JSON.stringify({
     methodology: "brawlranks_internal_calculation",
     official_supercell_methodology: false,
     build_data: "unavailable",
     ai_explanation: "not_implemented",
   });
-  const calculatedAt = new Date(cursor.nowIso);
-  const qualifyingMatchups = await rankingRepo.getQualifyingMatchupResults(pool, rankingRunId);
 
-  const publishedCount = await withTransaction(pool, async (c) => {
+  return withTransaction(pool, async (c) => {
     await rankingRepo.supersedeCurrentSnapshot(c);
-    const snapshotId = await rankingRepo.createPublishedSnapshot(c, { rankingRunId, patchId: cursor.patchId });
+    const snapshotId = await rankingRepo.createPublishedSnapshot(c, { rankingRunId: inputs.rankingRunId, patchId: inputs.patchId });
 
     let count = 0;
     for (const r of overallRows) {
@@ -596,8 +657,8 @@ async function publishPhase(pool: Pool, workflowRunId: string, cursor: RankingCu
         overallScore: r.metaScore,
         overallConfidence: r.confidence === "insufficient" ? "low" : r.confidence,
         modeTiersJson: JSON.stringify(modeTiers),
-        patchVersionLabel: cursor.patchVersionLabel,
-        calculatedAt,
+        patchVersionLabel: inputs.patchVersionLabel,
+        calculatedAt: inputs.calculatedAt,
         dataLimitationsJson,
       });
       count += 1;
@@ -612,19 +673,21 @@ async function publishPhase(pool: Pool, workflowRunId: string, cursor: RankingCu
         winRate: m.winRate,
         sampleSize: m.matches,
         gameModeId: null,
-        patchVersionLabel: cursor.patchVersionLabel,
+        patchVersionLabel: inputs.patchVersionLabel,
       });
     }
-    return count;
-  });
 
-  await rankingRepo.completeRankingRun(pool, rankingRunId, { status: "succeeded", tierMoveRatio, brawlersEvaluated, brawlersPublished: publishedCount });
-  await withTransaction(pool, async (c) => {
-    await writeJobCursor(c, workflowRunId, { ...cursor, phase: "done" });
-    await completeWorkflowRun(c, workflowRunId, "succeeded");
+    await rankingRepo.completeRankingRun(c, inputs.rankingRunId, {
+      status: "succeeded",
+      holdReason: inputs.holdReason ?? null,
+      tierMoveRatio: inputs.tierMoveRatio,
+      brawlersEvaluated: inputs.brawlersEvaluated,
+      brawlersPublished: count,
+    });
+
+    if (onPublished) await onPublished(c, { snapshotId, brawlersPublished: count });
+    return { snapshotId, brawlersPublished: count };
   });
-  logSafeInfo("ranking-rebuild", "job_completed", { workflowRunId, outcome: "published", brawlersPublished: publishedCount, tierMoveRatio });
-  return { freshStart: false, done: true, phase: "done", workflowRunId, rankingRunId, outcome: "published", brawlersEvaluated, brawlersPublished: publishedCount, tierMoveRatio };
 }
 
 // ---------------------------------------------------------------------------
