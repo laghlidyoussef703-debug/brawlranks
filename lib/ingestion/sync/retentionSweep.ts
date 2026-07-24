@@ -11,22 +11,19 @@
  *   1. The forbidden `raw_api_snapshots` metadata DELETE is removed entirely
  *      (raw metadata is kept forever; only its payload is nulled, by the
  *      archive-gated lib/retention/rawPayload.ts `runRawPayloadSweep`).
- *   2. Real (non-dry-run) execution now requires an explicit, off-by-default
- *      opt-in (RETENTION_LEGACY_SWEEP_ENABLED=true). Without it, a requested
- *      "real" sweep is coerced to REPORT-ONLY: it counts what the legacy policy
- *      WOULD remove and deletes nothing. This guarantees no un-archived
- *      destructive deletion runs by default.
+ *   2. The FOOT-GUN IS REMOVED: this sweep can no longer delete at all. Every
+ *      category is count-only (report-only) unconditionally — there is no
+ *      environment flag (the former RETENTION_LEGACY_SWEEP_ENABLED is gone) that
+ *      turns it destructive. It is now purely a reporting/monitoring tool.
  *
  * The Phase-14-COMPLIANT destructive paths are elsewhere and independently
- * gated: aggregate/ranking child rows via lib/retention (archive + double-verify
- * + staging re-import), and raw payload nulling via lib/retention/rawPayload.
- * The remaining legacy categories (battles, fetch runs, workflow runs,
- * incidents, observed players, name history) still lack their archive pipelines
- * and therefore stay report-only until those are built — enabling the legacy
- * flag runs the OLD, non-archive-gated behavior and is an explicit operator
- * override, never the default.
+ * flag+environment-gated: aggregate/ranking child rows via lib/retention
+ * (archive + double-verify + staging re-import), raw payload nulling via
+ * lib/retention/rawPayload, and the battle-graph / workflow-audit / fetch-audit
+ * families via lib/retention/graph.
  *
- * dryRun=true always reports counts via countOlderThan and deletes nothing.
+ * dryRun is retained only so callers/responses keep their shape; it changes
+ * nothing here — deletes never happen either way.
  */
 
 import type { Pool } from "mysql2/promise";
@@ -55,17 +52,12 @@ export interface RetentionCategoryResult {
 export interface RetentionSweepResult {
   outcome: "succeeded" | "lock_not_acquired";
   dryRun: boolean;
-  /** True only when a real destructive legacy sweep actually ran (explicit opt-in). */
-  destructiveExecuted: boolean;
-  /** True when a requested real sweep was coerced to report-only by the Phase-14 gate. */
-  reportOnly: boolean;
+  /** Always false: this legacy sweep can no longer delete anything (fail-closed). */
+  destructiveExecuted: false;
+  /** Always true: every category is count-only. */
+  reportOnly: true;
   workflowRunId?: string;
   categories: RetentionCategoryResult[];
-}
-
-/** DATASET Phase 14 opt-in: the legacy, non-archive-gated destructive sweep only deletes when this is explicitly enabled. */
-export function isLegacySweepEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env.RETENTION_LEGACY_SWEEP_ENABLED === "true";
 }
 
 function cutoffFor(days: number): Date {
@@ -104,11 +96,14 @@ export async function runRetentionSweep(
   dryRun: boolean = false
 ): Promise<RetentionSweepResult> {
   const pool = getWritePool();
-  // Phase-14 gate: a requested real sweep only deletes when the legacy flag is
-  // explicitly enabled; otherwise it is coerced to report-only (deletes nothing).
-  const legacyEnabled = isLegacySweepEnabled();
-  const reportOnly = dryRun || !legacyEnabled;
-  const destructiveExecuted = !dryRun && legacyEnabled;
+  // DATASET Phase 14 FOOT-GUN REMOVED: this legacy, non-archive-gated sweep can
+  // NEVER delete. Every category is count-only (report-only), regardless of the
+  // `dryRun` argument, so there is no environment flag that turns it destructive.
+  // The Phase-14-compliant destructive paths are: aggregate/ranking child rows
+  // (lib/retention), raw payload nulling (lib/retention/rawPayload), and the
+  // battle-graph / workflow-audit / fetch-audit families (lib/retention/graph),
+  // each archive-gated and separately flag+environment-guarded.
+  const reportOnly = true as const;
 
   const workflowDefinitionId = await ensureWorkflowDefinition(pool, WORKFLOW_SLUG, "scheduled_sync");
   const workflowRunId = await startWorkflowRun(pool, workflowDefinitionId, triggeredBy === "cron" ? "schedule" : "manual");
@@ -137,7 +132,7 @@ export async function runRetentionSweep(
     ];
 
     await completeWorkflowRun(pool, workflowRunId, "succeeded");
-    return { outcome: "succeeded", dryRun, destructiveExecuted, reportOnly, workflowRunId, categories };
+    return { outcome: "succeeded", dryRun, destructiveExecuted: false, reportOnly, workflowRunId, categories };
   } catch (error) {
     await completeWorkflowRun(pool, workflowRunId, "failed", error instanceof Error ? error.message : "unknown_error");
     throw error;
