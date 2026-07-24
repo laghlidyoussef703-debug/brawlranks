@@ -271,6 +271,81 @@ export async function completeRankingRun(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Read accessors for the operator held-run approval path (Phase 11 bootstrap)
+// ---------------------------------------------------------------------------
+
+export interface RankingRunRow {
+  id: string;
+  workflowRunId: string;
+  rankingRuleSetId: string;
+  modeAggregationRunId: string;
+  overallAggregationRunId: string;
+  matchupAggregationRunId: string;
+  patchId: string | null;
+  status: "running" | "succeeded" | "held" | "failed";
+  holdReason: string | null;
+  tierMoveRatio: number | null;
+  brawlersEvaluated: number | null;
+  brawlersPublished: number | null;
+}
+
+/** A single ranking_run by id (the run an operator approval targets), or null if the id is unknown. */
+export async function getRankingRunById(db: Queryable, rankingRunId: string): Promise<RankingRunRow | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, workflow_run_id AS workflowRunId, ranking_rule_set_id AS rankingRuleSetId,
+            mode_aggregation_run_id AS modeAggregationRunId, overall_aggregation_run_id AS overallAggregationRunId,
+            matchup_aggregation_run_id AS matchupAggregationRunId, patch_id AS patchId,
+            status, hold_reason AS holdReason, tier_move_ratio AS tierMoveRatio,
+            brawlers_evaluated AS brawlersEvaluated, brawlers_published AS brawlersPublished
+       FROM ranking_runs WHERE id = ?`,
+    [rankingRunId]
+  );
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    workflowRunId: r.workflowRunId,
+    rankingRuleSetId: r.rankingRuleSetId,
+    modeAggregationRunId: r.modeAggregationRunId,
+    overallAggregationRunId: r.overallAggregationRunId,
+    matchupAggregationRunId: r.matchupAggregationRunId,
+    patchId: r.patchId,
+    status: r.status,
+    holdReason: r.holdReason,
+    tierMoveRatio: r.tierMoveRatio === null ? null : Number(r.tierMoveRatio),
+    brawlersEvaluated: r.brawlersEvaluated === null ? null : Number(r.brawlersEvaluated),
+    brawlersPublished: r.brawlersPublished === null ? null : Number(r.brawlersPublished),
+  };
+}
+
+/** The published_snapshots row for a ranking run, or null if none exists yet — the idempotency gate for approval (the table's UNIQUE(ranking_run_id) also enforces one-snapshot-per-run at the DB level). */
+export async function getPublishedSnapshotByRankingRun(db: Queryable, rankingRunId: string): Promise<{ id: string; isCurrent: boolean } | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    "SELECT id, is_current AS isCurrent FROM published_snapshots WHERE ranking_run_id = ? LIMIT 1",
+    [rankingRunId]
+  );
+  if (rows.length === 0) return null;
+  return { id: rows[0].id as string, isCurrent: Boolean(rows[0].isCurrent) };
+}
+
+/** Statuses of the given aggregation_runs, keyed by id — used to re-verify the referenced aggregation triple is genuinely succeeded before approving. */
+export async function getAggregationRunStatuses(db: Queryable, ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, status FROM aggregation_runs WHERE id IN (${unique.map(() => "?").join(",")})`,
+    unique
+  );
+  return new Map(rows.map((r) => [r.id as string, r.status as string]));
+}
+
+/** Total classified candidate matchup_results rows for a run — a completeness/no-partial-child check. */
+export async function countMatchupResults(db: Queryable, rankingRunId: string): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>("SELECT COUNT(*) AS c FROM matchup_results WHERE ranking_run_id = ?", [rankingRunId]);
+  return Number(rows[0]?.c ?? 0);
+}
+
 export interface RankingResultRow {
   brawlerId: string;
   gameModeId: string | null;
