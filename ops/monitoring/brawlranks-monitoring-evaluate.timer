@@ -1,0 +1,9 @@
+# Every 5 minutes. TEMPLATE — not enabled.
+[Unit]
+Description=Run BrawlRanks monitoring alert evaluation every 5 minutes
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=5min
+Unit=brawlranks-monitoring-evaluate.service
+[Install]
+WantedBy=timers.target

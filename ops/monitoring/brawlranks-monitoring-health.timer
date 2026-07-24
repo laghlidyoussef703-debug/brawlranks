@@ -1,0 +1,9 @@
+# Every 5 minutes. TEMPLATE — not enabled. `systemctl enable --now` only after approval.
+[Unit]
+Description=Run BrawlRanks monitoring health collector every 5 minutes
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=brawlranks-monitoring-health.service
+[Install]
+WantedBy=timers.target
