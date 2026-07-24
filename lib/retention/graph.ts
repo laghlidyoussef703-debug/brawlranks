@@ -61,6 +61,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const GRAPH_TABLES = new Set<string>([
   "normalized_battles", "battle_participants", "battle_teams", "battle_observations",
   "workflow_runs", "workflow_steps", "data_fetch_runs",
+  "observed_players", "crawl_batches", "detected_changes", "data_incidents",
+  "normalized_snapshots", "player_name_history",
 ]);
 function assertGraphTable(table: string): void {
   if (!GRAPH_TABLES.has(table)) throw new Error(`refusing unknown graph table: ${table}`);
@@ -86,6 +88,10 @@ export interface GraphFamily {
   /** FK-safe DELETE order (children first, anchor last). */
   deleteOrder: string[];
   sourceRefs: { table: string; column: string }[];
+  /** When true the family may ONLY be archived, never deleted (compaction that
+   *  would drop a preserved boundary is refused). Used by player_name_history,
+   *  where every row is a name-change boundary that must be preserved. */
+  archiveOnly?: boolean;
 }
 
 export const BATTLE_GRAPH: GraphFamily = {
@@ -141,11 +147,84 @@ export const FETCH_AUDIT: GraphFamily = {
   sourceRefs: [{ table: "data_fetch_runs", column: "workflow_run_id" }],
 };
 
+export const OBSERVED_PLAYERS: GraphFamily = {
+  family: "observed_players",
+  anchorTable: "observed_players",
+  timeColumn: "first_observed_at",
+  hotDays: 60, // unpromoted 60d; promoted 30-after-promotion handled in plan
+  naturalKeyColumns: ["player_tag"],
+  children: [],
+  deleteOrder: ["observed_players"],
+  sourceRefs: [],
+};
+
+export const CRAWL_BATCHES: GraphFamily = {
+  family: "crawl_batches",
+  anchorTable: "crawl_batches",
+  timeColumn: "completed_at",
+  hotDays: 90,
+  naturalKeyColumns: ["id"],
+  children: [],
+  deleteOrder: ["crawl_batches"],
+  sourceRefs: [{ table: "crawl_batches", column: "workflow_run_id" }],
+};
+
+export const DETECTED_CHANGES: GraphFamily = {
+  family: "detected_changes",
+  anchorTable: "detected_changes",
+  timeColumn: "created_at",
+  hotDays: 365, // 12 months
+  naturalKeyColumns: ["id"],
+  children: [],
+  deleteOrder: ["detected_changes"],
+  sourceRefs: [{ table: "detected_changes", column: "data_fetch_run_id" }],
+};
+
+export const DATA_INCIDENTS: GraphFamily = {
+  family: "data_incidents",
+  anchorTable: "data_incidents",
+  timeColumn: "resolved_at",
+  hotDays: 365, // resolved incidents 12 months; unresolved never eligible
+  naturalKeyColumns: ["id"],
+  children: [],
+  deleteOrder: ["data_incidents"],
+  sourceRefs: [{ table: "data_incidents", column: "related_fetch_run_id" }],
+};
+
+export const NORMALIZED_SNAPSHOTS: GraphFamily = {
+  family: "normalized_snapshots",
+  anchorTable: "normalized_snapshots",
+  timeColumn: "created_at",
+  hotDays: 365, // superseded 12 months; accepted/current never eligible
+  naturalKeyColumns: ["entity_type", "entity_id"],
+  children: [],
+  deleteOrder: ["normalized_snapshots"],
+  sourceRefs: [{ table: "normalized_snapshots", column: "data_fetch_run_id" }],
+};
+
+export const PLAYER_NAME_HISTORY: GraphFamily = {
+  family: "player_name_history",
+  anchorTable: "player_name_history",
+  timeColumn: "recorded_at",
+  hotDays: 365,
+  naturalKeyColumns: ["player_id", "previous_name"],
+  children: [],
+  deleteOrder: ["player_name_history"],
+  sourceRefs: [{ table: "player_name_history", column: "player_id" }],
+  archiveOnly: true, // every row is a preserved name-change boundary — archive, never delete
+};
+
 export const GRAPH_FAMILIES: Record<string, GraphFamily> = {
   battle_graph: BATTLE_GRAPH,
   battle_observations: BATTLE_OBSERVATIONS,
   workflow_audit: WORKFLOW_AUDIT,
   fetch_audit: FETCH_AUDIT,
+  observed_players: OBSERVED_PLAYERS,
+  crawl_batches: CRAWL_BATCHES,
+  detected_changes: DETECTED_CHANGES,
+  data_incidents: DATA_INCIDENTS,
+  normalized_snapshots: NORMALIZED_SNAPSHOTS,
+  player_name_history: PLAYER_NAME_HISTORY,
 };
 
 export function getFamily(name: string): GraphFamily {
@@ -189,6 +268,12 @@ export async function planFamily(db: Queryable, family: GraphFamily, opts: { sca
     case "battle_observations": return planBattleObservations(db, now, scanLimit);
     case "workflow_audit": return planWorkflowAudit(db, now, scanLimit);
     case "fetch_audit": return planFetchAudit(db, now, scanLimit);
+    case "observed_players": return planObservedPlayers(db, now, scanLimit);
+    case "crawl_batches": return planCrawlBatches(db, now, scanLimit);
+    case "detected_changes": return planDetectedChanges(db, now, scanLimit);
+    case "data_incidents": return planDataIncidents(db, now, scanLimit);
+    case "normalized_snapshots": return planNormalizedSnapshots(db, now, scanLimit);
+    case "player_name_history": return planPlayerNameHistory(db, now, scanLimit);
     default: throw new Error(`no planner for family ${family.family}`);
   }
 }
@@ -286,6 +371,100 @@ async function planFetchAudit(db: Queryable, now: Date, scanLimit: number): Prom
     else candidates.push({ anchorId: id, naturalKey: { id }, ts: r.ts ? new Date(r.ts) : null });
   }
   return makePlan("fetch_audit", scanLimit, now, candidates, skipped, FETCH_AUDIT.hotDays);
+}
+
+const OBS_UNPROMOTED_DAYS = 60;
+const OBS_PROMOTED_DAYS = 30;
+
+async function planObservedPlayers(db: Queryable, now: Date, scanLimit: number): Promise<GraphPlan> {
+  const unpromotedCutoff = new Date(now.getTime() - OBS_UNPROMOTED_DAYS * DAY);
+  const promotedCutoff = new Date(now.getTime() - OBS_PROMOTED_DAYS * DAY);
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT op.id AS anchorId, op.player_tag AS playerTag, op.promoted_to_active AS promoted,
+            op.first_observed_at AS firstObserved, op.promoted_at AS promotedAt,
+            EXISTS(SELECT 1 FROM player_crawl_schedule pcs WHERE pcs.player_tag = op.player_tag
+                     AND (pcs.is_active = 1 OR (pcs.lease_expires_at IS NOT NULL AND pcs.lease_expires_at > UTC_TIMESTAMP(3)))) AS activeCrawl
+       FROM observed_players op ORDER BY op.id ASC LIMIT ?`,
+    [scanLimit]
+  );
+  const candidates: AnchorCandidate[] = [];
+  const skipped: AnchorSkip[] = [];
+  for (const r of rows) {
+    const id = r.anchorId as string;
+    if (Number(r.activeCrawl) === 1) { skipped.push({ anchorId: id, reason: "active_crawl_dependency" }); continue; }
+    if (Number(r.promoted) === 1) {
+      if (!r.promotedAt) { skipped.push({ anchorId: id, reason: "promoted_without_proof" }); continue; }
+      if (new Date(r.promotedAt).getTime() >= promotedCutoff.getTime()) { skipped.push({ anchorId: id, reason: "within_promoted_hot" }); continue; }
+    } else {
+      if (!r.firstObserved || new Date(r.firstObserved).getTime() >= unpromotedCutoff.getTime()) { skipped.push({ anchorId: id, reason: "within_unpromoted_hot" }); continue; }
+    }
+    candidates.push({ anchorId: id, naturalKey: { player_tag: r.playerTag }, ts: r.firstObserved ? new Date(r.firstObserved) : null });
+  }
+  return makePlan("observed_players", scanLimit, now, candidates, skipped, OBS_UNPROMOTED_DAYS);
+}
+
+async function planCrawlBatches(db: Queryable, now: Date, scanLimit: number): Promise<GraphPlan> {
+  const cutoff = new Date(now.getTime() - CRAWL_BATCHES.hotDays * DAY);
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id AS anchorId, workflow_run_id AS wf, completed_at AS ts
+       FROM crawl_batches WHERE completed_at IS NOT NULL AND completed_at < ? ORDER BY id ASC LIMIT ?`,
+    [cutoff, scanLimit]
+  );
+  const candidates = rows.map((r) => ({ anchorId: r.anchorId as string, naturalKey: { id: r.anchorId, workflow_run_id: r.wf }, ts: r.ts ? new Date(r.ts) : null }));
+  return makePlan("crawl_batches", scanLimit, now, candidates, [], CRAWL_BATCHES.hotDays);
+}
+
+async function planDetectedChanges(db: Queryable, now: Date, scanLimit: number): Promise<GraphPlan> {
+  const cutoff = new Date(now.getTime() - DETECTED_CHANGES.hotDays * DAY);
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT dc.id AS anchorId, dc.created_at AS ts, dc.data_fetch_run_id AS fr,
+            EXISTS(SELECT 1 FROM data_incidents di WHERE di.related_fetch_run_id = dc.data_fetch_run_id AND di.status <> 'resolved') AS openIncident
+       FROM detected_changes dc WHERE dc.created_at < ? ORDER BY dc.id ASC LIMIT ?`,
+    [cutoff, scanLimit]
+  );
+  const candidates: AnchorCandidate[] = [];
+  const skipped: AnchorSkip[] = [];
+  for (const r of rows) {
+    if (Number(r.openIncident) === 1) skipped.push({ anchorId: r.anchorId as string, reason: "open_incident_dependency" });
+    else candidates.push({ anchorId: r.anchorId as string, naturalKey: { id: r.anchorId }, ts: r.ts ? new Date(r.ts) : null });
+  }
+  return makePlan("detected_changes", scanLimit, now, candidates, skipped, DETECTED_CHANGES.hotDays);
+}
+
+async function planDataIncidents(db: Queryable, now: Date, scanLimit: number): Promise<GraphPlan> {
+  const cutoff = new Date(now.getTime() - DATA_INCIDENTS.hotDays * DAY);
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id AS anchorId, resolved_at AS ts FROM data_incidents
+      WHERE status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at < ? ORDER BY id ASC LIMIT ?`,
+    [cutoff, scanLimit]
+  );
+  const candidates = rows.map((r) => ({ anchorId: r.anchorId as string, naturalKey: { id: r.anchorId }, ts: r.ts ? new Date(r.ts) : null }));
+  return makePlan("data_incidents", scanLimit, now, candidates, [], DATA_INCIDENTS.hotDays);
+}
+
+async function planNormalizedSnapshots(db: Queryable, now: Date, scanLimit: number): Promise<GraphPlan> {
+  const cutoff = new Date(now.getTime() - NORMALIZED_SNAPSHOTS.hotDays * DAY);
+  // is_accepted = 0 => a SUPERSEDED version; the accepted/current row (is_accepted = 1) is never selected.
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id AS anchorId, entity_type AS et, entity_id AS eid, created_at AS ts
+       FROM normalized_snapshots WHERE is_accepted = 0 AND created_at < ? ORDER BY id ASC LIMIT ?`,
+    [cutoff, scanLimit]
+  );
+  const candidates = rows.map((r) => ({ anchorId: r.anchorId as string, naturalKey: { entity_type: r.et, entity_id: r.eid }, ts: r.ts ? new Date(r.ts) : null }));
+  return makePlan("normalized_snapshots", scanLimit, now, candidates, [], NORMALIZED_SNAPSHOTS.hotDays);
+}
+
+async function planPlayerNameHistory(db: Queryable, now: Date, scanLimit: number): Promise<GraphPlan> {
+  const cutoff = new Date(now.getTime() - PLAYER_NAME_HISTORY.hotDays * DAY);
+  // Archive-only: candidates are archivable (>365d) but never deletion targets
+  // (deleteGraphBatch refuses an archiveOnly family), preserving every boundary.
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id AS anchorId, player_id AS pid, previous_name AS pname, recorded_at AS ts
+       FROM player_name_history WHERE recorded_at < ? ORDER BY id ASC LIMIT ?`,
+    [cutoff, scanLimit]
+  );
+  const candidates = rows.map((r) => ({ anchorId: r.anchorId as string, naturalKey: { player_id: r.pid, previous_name: r.pname }, ts: r.ts ? new Date(r.ts) : null }));
+  return makePlan("player_name_history", scanLimit, now, candidates, [], PLAYER_NAME_HISTORY.hotDays);
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +777,7 @@ export async function reimportGraphArchive(db: Queryable, provider: ObjectStorag
 
 export type GraphDeletionBlock =
   | "not_verified" | "verification_evidence_missing" | "reimport_not_passed"
-  | "allowlist_mismatch" | "eligibility_changed";
+  | "allowlist_mismatch" | "eligibility_changed" | "archive_only_no_deletion";
 
 export interface GraphDeleteResult {
   family: string; archiveKey: string; manifestId: string; dryRun: boolean; proceeded: boolean;
@@ -633,6 +812,10 @@ export async function deleteGraphBatch(
   const m = await getGraphManifestByKey(db, family.family, archiveKey);
   if (!m) throw new Error("no_graph_manifest");
   const base: GraphDeleteResult = { family: family.family, archiveKey, manifestId: m.id, dryRun, proceeded: false, deletedByTable: {}, batches: 0 };
+
+  // Archive-only families (player_name_history) are never deleted — every row is
+  // a preserved boundary. The archive exists for durability; deletion is refused.
+  if (family.archiveOnly) return { ...base, blockedReason: "archive_only_no_deletion" };
 
   const allowlist = validateAnchorAllowlist(opts.allowlist);
   // The archive_key is sha256(sorted anchor ids); a matching key (and count)
